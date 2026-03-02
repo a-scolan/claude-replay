@@ -1,0 +1,25 @@
+{
+  "name": "claude-replay",
+  "version": "0.2.0",
+  "description": "Community tool to convert Claude Code session transcripts into self-contained, embeddable HTML replays",
+  "type": "module",
+  "bin": {
+    "claude-replay": "bin/claude-replay.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "template/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "replay",
+    "transcript",
+    "html"
+  ],
+  "license": "MIT"
+}
