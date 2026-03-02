@@ -764,15 +764,27 @@ mark.search-highlight.active {
 
   const controlsEl = $(".controls");
   function getControlsHeight() { return controlsEl.offsetHeight; }
-  const PEEK_OFFSET = 20; // px of previous dimmed turn visible above
+  const PEEK_OFFSET = 20;           // px of previous dimmed turn visible above
+  const PAUSE_TOP_MS = 2500;        // pause at top of tall turn (ms, at 1x)
+  const PAUSE_BOTTOM_MS = 2500;     // pause at bottom of tall turn before advancing
+  const SHORT_TURN_DELAY_MS = 5000; // delay between short turns
+  const SCROLL_SPEED_FACTOR = 6;    // scroll px-to-ms multiplier
+  const SCROLL_MIN_MS = 3000;       // min scroll duration for tall turns
+  const SCROLL_MAX_MS = 16000;      // max scroll duration for tall turns
+  const TALL_THRESHOLD = 50;        // px overflow to trigger tall-turn mode
+  const TURN_SCROLL_MS = 600;       // duration of scroll between turns
 
   function scrollToTurn(el) {
     // Wait for layout to be fully resolved before measuring
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const absTop = el.getBoundingClientRect().top + window.scrollY;
-        const targetY = absTop - getControlsHeight() - PEEK_OFFSET;
-        window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+        const targetY = Math.max(0, absTop - getControlsHeight() - PEEK_OFFSET);
+        const dist = Math.abs(targetY - window.scrollY);
+        if (dist < 2) return;
+        // Scale duration with distance, with a floor
+        const duration = Math.min(TURN_SCROLL_MS + dist * 0.3, 1500);
+        smoothScrollTo(targetY, duration);
       });
     });
   }
@@ -818,8 +830,9 @@ mark.search-highlight.active {
     const dist = targetY - startY;
     if (Math.abs(dist) < 2) { if (callback) callback(); return; }
     const startTime = performance.now();
+    const requirePlaying = !!callback; // only gate on playing when used by auto-play
     function step(now) {
-      if (!playing) { cancelScrollAnim(); return; }
+      if (requirePlaying && !playing) { cancelScrollAnim(); return; }
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
       // ease-in-out
@@ -900,10 +913,10 @@ mark.search-highlight.active {
       const viewH = window.innerHeight - getControlsHeight();
       const overflow = rect.height - viewH;
 
-      if (overflow > 50) {
+      if (overflow > TALL_THRESHOLD) {
         // Tall turn: first pause at top, then scroll to bottom, then advance
-        const pauseTop = 800 / speed;
-        const scrollDuration = Math.min(Math.max(overflow / speed * 3, 1500 / speed), 8000 / speed);
+        const pauseTop = PAUSE_TOP_MS / speed;
+        const scrollDuration = Math.min(Math.max(overflow / speed * SCROLL_SPEED_FACTOR, SCROLL_MIN_MS / speed), SCROLL_MAX_MS / speed);
         const targetY = el.offsetTop - getControlsHeight() + el.offsetHeight - viewH;
 
         playTimer = setTimeout(() => {
@@ -914,12 +927,12 @@ mark.search-highlight.active {
             playTimer = setTimeout(() => {
               if (!playing) return;
               playStep();
-            }, 800 / speed);
+            }, PAUSE_BOTTOM_MS / speed);
           });
         }, pauseTop);
       } else {
         // Short turn: just wait then advance
-        const delay = 1500 / speed;
+        const delay = SHORT_TURN_DELAY_MS / speed;
         playTimer = setTimeout(() => {
           if (!playing) return;
           playStep();
