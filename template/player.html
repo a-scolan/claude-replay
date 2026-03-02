@@ -510,6 +510,25 @@ body {
     btn.textContent = collapsed ? `Show more (${totalLines} lines)` : "Show less";
   };
 
+  // Compute session start time from first turn
+  const sessionStart = TURNS.length > 0 && TURNS[0].timestamp
+    ? new Date(TURNS[0].timestamp).getTime()
+    : null;
+
+  function formatRelativeTime(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `+ ${h}h ${m}m ${s}s`;
+    if (m > 0) return `+ ${m}m ${s}s`;
+    return `+ ${s}s`;
+  }
+
+  function formatUtcTime(d) {
+    return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+  }
+
   function renderTurn(turn) {
     const el = document.createElement("div");
     el.className = "turn";
@@ -518,15 +537,23 @@ body {
     let html = "";
 
     // Turn header bar
-    let tsStr = "";
+    let relStr = "";
+    let absStr = "";
     if (turn.timestamp) {
       const d = new Date(turn.timestamp);
-      tsStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      absStr = formatUtcTime(d);
+      if (sessionStart != null) {
+        const delta = d.getTime() - sessionStart;
+        relStr = delta > 0 ? formatRelativeTime(delta) : "start";
+      }
     }
+    const tsHtml = relStr || absStr
+      ? `<span class="turn-header-ts" ${absStr ? `title="${absStr}"` : ""}>${relStr || absStr}</span>`
+      : "";
     html += `<div class="turn-header" onclick="this.parentElement.classList.toggle('collapsed')">
       <span class="turn-header-chevron">&#9660;</span>
       <span class="turn-header-label">#${turn.index}</span>
-      ${tsStr ? `<span class="turn-header-ts">${tsStr}</span>` : ""}
+      ${tsHtml}
     </div>`;
 
     html += `<div class="turn-body">`;
