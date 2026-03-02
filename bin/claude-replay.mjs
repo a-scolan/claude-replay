@@ -5,6 +5,7 @@
  */
 
 import { parseArgs } from "node:util";
+import { basename, dirname } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
 import { parseTranscript, filterTurns } from "../src/parser.mjs";
 import { render } from "../src/renderer.mjs";
@@ -22,6 +23,7 @@ const options = {
   "theme-file": { type: "string" },
   "list-themes": { type: "boolean", default: false },
   "no-redact": { type: "boolean", default: false },
+  title: { type: "string" },
   "user-label": { type: "string", default: "User" },
   "assistant-label": { type: "string", default: "Claude" },
   help: { type: "boolean", short: "h", default: false },
@@ -50,6 +52,7 @@ Options:
   --speed N               Initial playback speed (default: 1.0)
   --no-thinking           Hide thinking blocks by default
   --no-tool-calls         Hide tool call blocks by default
+  --title TEXT             Page title (default: derived from input path)
   --no-redact             Disable secret redaction in output
   --theme NAME            Built-in theme (default: tokyo-night)
   --theme-file FILE       Custom theme JSON file (overrides --theme)
@@ -131,6 +134,21 @@ if (turns.length === 0) {
 
 const speed = parseFloat(values.speed) || 1.0;
 
+// Derive title: CLI override > parent folder name > filename
+let title = values.title;
+if (!title) {
+  const dir = basename(dirname(inputFile));
+  // Claude projects dirs look like "-Users-enrico-Personal-project-name"
+  // Extract the last segment as the project name
+  const parts = dir.replace(/^-+/, "").split("-");
+  const projectName = parts.length > 1 ? parts.slice(-2).join("-") : parts[0];
+  if (projectName && projectName !== "." && projectName !== "/") {
+    title = "Replay — " + projectName;
+  } else {
+    title = "Replay — " + basename(inputFile, ".jsonl");
+  }
+}
+
 const html = render(turns, {
   speed,
   showThinking: !values["no-thinking"],
@@ -139,6 +157,7 @@ const html = render(turns, {
   redactSecrets: !values["no-redact"],
   userLabel: values["user-label"],
   assistantLabel: values["assistant-label"],
+  title,
 });
 
 if (values.output) {

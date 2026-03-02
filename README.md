@@ -48,8 +48,8 @@ claude-replay <input.jsonl> [options]
 | `--speed N` | Initial playback speed, e.g. `2.0` (default: 1.0) |
 | `--no-thinking` | Hide thinking blocks by default |
 | `--no-tool-calls` | Hide tool call blocks by default |
-| `--no-tool-results` | Hide tool results by default |
 | `--no-redact` | Disable automatic secret redaction |
+| `--title TEXT` | Page title (default: derived from input path) |
 | `--theme NAME` | Built-in theme (default: `tokyo-night`) |
 | `--theme-file FILE` | Custom theme JSON file (overrides `--theme`) |
 | `--list-themes` | List available built-in themes and exit |
@@ -63,8 +63,8 @@ claude-replay session.jsonl --turns 5-15 --speed 2.0 -o replay.html
 # Filter by time range
 claude-replay session.jsonl --from "2026-02-26T02:00" --to "2026-02-26T03:00" -o replay.html
 
-# Clean output: no thinking, no tool details
-claude-replay session.jsonl --no-thinking --no-tool-results -o replay.html
+# Clean output: no thinking, no tools
+claude-replay session.jsonl --no-thinking --no-tool-calls -o replay.html
 
 # Use a different theme
 claude-replay session.jsonl --theme dracula -o replay.html

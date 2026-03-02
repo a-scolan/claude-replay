@@ -43,7 +43,7 @@ function turnsToJson(turns, { redact = true } = {}) {
 /**
  * Render turns into a self-contained HTML string.
  * @param {import('./parser.mjs').Turn[]} turns
- * @param {{ speed?: number, showThinking?: boolean, showToolCalls?: boolean, theme?: Record<string,string>, userLabel?: string, assistantLabel?: string, redactSecrets?: boolean }} opts
+ * @param {{ speed?: number, showThinking?: boolean, showToolCalls?: boolean, theme?: Record<string,string>, userLabel?: string, assistantLabel?: string, title?: string, redactSecrets?: boolean }} opts
  * @returns {string}
  */
 export function render(turns, opts = {}) {
@@ -54,6 +54,7 @@ export function render(turns, opts = {}) {
     theme = getTheme("tokyo-night"),
     userLabel = "User",
     assistantLabel = "Claude",
+    title = "Claude Code Replay",
     redactSecrets: redact = true,
   } = opts;
 
@@ -65,6 +66,7 @@ export function render(turns, opts = {}) {
   html = html.replace(/\/\*INITIAL_SPEED\*\//g, String(speed));  // HTML attrs
   html = html.replace("/*CHECKED_THINKING*/", showThinking ? "checked" : "");
   html = html.replace("/*CHECKED_TOOLS*/", showToolCalls ? "checked" : "");
+  html = html.replaceAll("/*PAGE_TITLE*/", title);
   html = html.replace("/*USER_LABEL*/", userLabel);
   html = html.replace("/*ASSISTANT_LABEL*/", assistantLabel);
 

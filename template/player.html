@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Code Replay</title>
+<title>/*PAGE_TITLE*/</title>
 <style>
 /*THEME_CSS*/
 
@@ -53,6 +53,15 @@ body {
 }
 .controls button:hover { background: var(--border); }
 .controls button.active { background: var(--accent-dim); border-color: var(--accent); }
+
+.bar-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
 
 .progress-wrap {
   flex: 1;
@@ -133,6 +142,7 @@ body {
   flex-wrap: wrap;
   justify-content: center;
 }
+body.in-iframe .controls-secondary { display: none; }
 
 /* Transcript area */
 .transcript {
@@ -143,13 +153,11 @@ body {
 
 .turn {
   margin-bottom: 24px;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.4s, transform 0.3s;
+  opacity: 0.25;
+  transition: opacity 0.4s;
 }
 .turn.visible {
   opacity: 0.35;
-  transform: translateY(0);
 }
 .turn.visible.active {
   opacity: 1;
@@ -478,6 +486,9 @@ mark.search-highlight.active {
     padding: 6px 8px;
     gap: 6px 8px;
   }
+  .bar-title {
+    max-width: 120px;
+  }
   .controls button {
     min-height: 40px;
     min-width: 40px;
@@ -519,6 +530,7 @@ mark.search-highlight.active {
     <button id="btn-prev" title="Previous turn">&larr;</button>
     <button id="btn-play" title="Play / Pause">&#9654;</button>
     <button id="btn-next" title="Next turn">&rarr;</button>
+    <span class="bar-title">/*PAGE_TITLE*/</span>
     <div class="progress-wrap">
       <div class="progress-bar" id="progress-bar">
         <div class="progress-fill" id="progress-fill"></div>
@@ -543,6 +555,7 @@ mark.search-highlight.active {
         <button id="search-next" title="Next match">&darr;</button>
       </div>
     </div>
+    <button id="popout-btn" title="Open in new tab" style="display:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9 1h6v6h-2V4.4L7.7 9.7 6.3 8.3 11.6 3H9V1zM3 3h4v2H3v8h8V9h2v6H1V3h2z"/></svg></button>
   </div>
   <div class="transcript" id="transcript"></div>
 </div>
@@ -796,17 +809,24 @@ mark.search-highlight.active {
     }
   }
 
-  function showUpTo(index) {
-    // Render turns that haven't been rendered yet
-    const existing = transcript.children.length;
-    for (let i = existing; i < index && i < TURNS.length; i++) {
+  function renderAllTurns() {
+    for (let i = 0; i < TURNS.length; i++) {
       const el = renderTurn(TURNS[i]);
       transcript.appendChild(el);
-      // Trigger reflow for animation
-      el.offsetHeight;
-      el.classList.add("visible");
     }
+  }
+
+  function showUpTo(index) {
     currentTurn = Math.min(index, TURNS.length);
+    // Mark turns up to currentTurn as visible
+    for (let i = 0; i < transcript.children.length; i++) {
+      const el = transcript.children[i];
+      if (i < currentTurn) {
+        el.classList.add("visible");
+      } else {
+        el.classList.remove("visible");
+      }
+    }
     updateProgress();
     setActiveTurn(currentTurn - 1);
 
@@ -858,29 +878,15 @@ mark.search-highlight.active {
 
   function stepBack() {
     if (currentTurn > 1) {
-      // Remove last turn, but never go below 1 (always keep first turn visible)
-      const last = transcript.children[currentTurn - 1];
-      if (last) {
-        last.classList.remove("visible");
-        last.classList.remove("active");
-        setTimeout(() => last.remove(), 300);
-      }
-      currentTurn--;
-      updateProgress();
-      setActiveTurn(currentTurn - 1);
-      // Pin active turn just below the controls bar
-      if (currentTurn > 0) {
-        const el = transcript.children[currentTurn - 1];
-        if (el) scrollToTurn(el);
-      }
+      showUpTo(currentTurn - 1);
     }
   }
 
   function startPlay() {
     if (currentTurn >= TURNS.length) {
       // Reset if at end
-      transcript.innerHTML = "";
       currentTurn = 0;
+      for (const el of transcript.children) el.classList.remove("visible");
     }
     playing = true;
     btnPlay.innerHTML = "&#9646;&#9646;";
@@ -981,9 +987,6 @@ mark.search-highlight.active {
     const rect = progressBar.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
     const target = Math.round(pct * TURNS.length);
-    // Reset and show up to target
-    transcript.innerHTML = "";
-    currentTurn = 0;
     showUpTo(target);
   });
 
@@ -995,9 +998,18 @@ mark.search-highlight.active {
     const turn = e.target.closest(".turn");
     if (!turn) return;
     const idx = parseInt(turn.dataset.index, 10);
-    setActiveTurn(idx - 1);
+    // Mark turns up to clicked one as visible, without scrolling
     currentTurn = idx;
+    for (let i = 0; i < transcript.children.length; i++) {
+      const el = transcript.children[i];
+      if (i < currentTurn) {
+        el.classList.add("visible");
+      } else {
+        el.classList.remove("visible");
+      }
+    }
     updateProgress();
+    setActiveTurn(currentTurn - 1);
   });
 
   // Keyboard shortcuts
@@ -1017,7 +1029,6 @@ mark.search-highlight.active {
   let searchMatches = [];
   let currentMatch = -1;
   let searchDebounce = null;
-  let allTurnsRendered = false;
 
   function clearHighlights() {
     for (const m of document.querySelectorAll("mark.search-highlight")) {
@@ -1096,12 +1107,6 @@ mark.search-highlight.active {
     if (!query) {
       updateSearchCount();
       return;
-    }
-
-    // Ensure all turns are rendered
-    if (!allTurnsRendered) {
-      showUpTo(TURNS.length);
-      allTurnsRendered = true;
     }
 
     const containers = document.querySelectorAll(".user-text, .assistant-text, .tool-input, .tool-result, .thinking-body");
@@ -1190,9 +1195,19 @@ mark.search-highlight.active {
     }
   });
 
-  // Init
-  updateProgress();
-  // Show first turn immediately
+  // Iframe detection — compact mode + pop-out button
+  const popoutBtn = $("#popout-btn");
+  let inIframe = false;
+  try { inIframe = window !== window.top; } catch (e) { inIframe = true; }
+  if (inIframe) {
+    document.body.classList.add("in-iframe");
+    popoutBtn.style.display = "";
+    popoutBtn.addEventListener("click", () => window.open(location.href, "_blank"));
+  }
+
+  // Init — render all turns into DOM, then reveal the first one
+  renderAllTurns();
+  applyVisibility();
   if (TURNS.length > 0) showUpTo(1);
 })();
 </script>
