@@ -218,24 +218,6 @@ body.in-iframe .controls-secondary { display: none; }
 .more-popover .more-row-label {
   min-width: 50px;
 }
-.more-popover .more-search {
-  width: 100%;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-family: inherit;
-  font-size: 14px;
-  outline: none;
-  margin-top: 4px;
-}
-.more-popover .more-search:focus { border-color: var(--accent); }
-.more-popover .search-count {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 2px 0;
-}
 .more-divider {
   border: none;
   border-top: 1px solid var(--border);
@@ -731,8 +713,6 @@ mark.search-highlight.active {
           <label><input type="checkbox" id="toggle-thinking2" /*CHECKED_THINKING*/> Thinking</label>
           <label><input type="checkbox" id="toggle-tools2" /*CHECKED_TOOLS*/> Tools</label>
           <hr class="more-divider">
-          <input type="text" class="more-search" id="search-input2" placeholder="Search...">
-          <span class="search-count" id="search-count2"></span>
           <div id="more-chapters" style="display:none">
             <hr class="more-divider">
             <div id="more-chapter-list"></div>
@@ -787,7 +767,7 @@ mark.search-highlight.active {
   const progressText = $("#progress-text");
   const progressBar = $("#progress-bar");
   const speedBtn = $("#speed-btn");
-  const SPEED_STEPS = [0.5, 1, 1.5, 2];
+  const SPEED_STEPS = [0.5, 1, 1.5, 2, "RT"];
   const toggleThinking = $("#toggle-thinking");
   const toggleTools = $("#toggle-tools");
 
@@ -1145,9 +1125,31 @@ mark.search-highlight.active {
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
   }
 
+  // Get real-time delay between current turn and next turn from timestamps
+  const RT_MAX_DELAY = 10000; // cap idle gaps at 10s
+  function getRtDelay() {
+    if (currentTurn <= 0 || currentTurn >= TURNS.length) return 1000;
+    const cur = TURNS[currentTurn - 1];
+    const next = TURNS[currentTurn];
+    if (!cur.timestamp || !next.timestamp) return 1000;
+    const delta = new Date(next.timestamp).getTime() - new Date(cur.timestamp).getTime();
+    return Math.min(Math.max(delta, 100), RT_MAX_DELAY);
+  }
+
   function playStep() {
     if (!playing) return;
     if (currentTurn >= TURNS.length) { stopPlay(); return; }
+
+    // In RT mode, wait the real timestamp delta BEFORE showing the next turn
+    if (speed === "RT") {
+      const delay = getRtDelay();
+      playTimer = setTimeout(() => {
+        if (!playing) return;
+        showUpTo(currentTurn + 1);
+        playStep();
+      }, delay);
+      return;
+    }
 
     // Show next turn
     showUpTo(currentTurn + 1);
@@ -1217,14 +1219,10 @@ mark.search-highlight.active {
   const speedBtn2 = $("#speed-btn2");
   const toggleThinking2 = $("#toggle-thinking2");
   const toggleTools2 = $("#toggle-tools2");
-  const searchInput2 = $("#search-input2");
-  const searchCount2 = $("#search-count2");
-
   speedBtn2.addEventListener("click", () => {
     const idx = SPEED_STEPS.indexOf(speed);
     speed = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
-    speedBtn.textContent = speed + "x";
-    speedBtn2.textContent = speed + "x";
+    updateSpeedLabel();
   });
 
   toggleThinking2.addEventListener("change", () => {
@@ -1234,26 +1232,6 @@ mark.search-highlight.active {
   toggleTools2.addEventListener("change", () => {
     toggleTools.checked = toggleTools2.checked;
     applyVisibility();
-  });
-
-  searchInput2.addEventListener("input", () => {
-    searchInput.value = searchInput2.value;
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => performSearch(searchInput.value.trim()), 200);
-  });
-  searchInput2.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (searchMatches.length > 0) {
-        goToMatch(e.shiftKey ? currentMatch - 1 : currentMatch + 1);
-      }
-    }
-    if (e.key === "Escape") {
-      searchInput2.value = "";
-      searchInput.value = "";
-      performSearch("");
-      searchInput2.blur();
-    }
   });
 
   // Filter popover
@@ -1274,10 +1252,16 @@ mark.search-highlight.active {
   btnNext.addEventListener("click", stepForward);
   btnPrev.addEventListener("click", stepBack);
 
+  function updateSpeedLabel() {
+    const label = speed === "RT" ? "RT" : speed + "x";
+    speedBtn.textContent = label;
+    speedBtn2.textContent = label;
+  }
+
   speedBtn.addEventListener("click", () => {
     const idx = SPEED_STEPS.indexOf(speed);
     speed = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
-    speedBtn.textContent = speed + "x";
+    updateSpeedLabel();
   });
 
   function seekFromX(clientX) {
@@ -1356,7 +1340,6 @@ mark.search-highlight.active {
       text = (currentMatch + 1) + "/" + searchMatches.length;
     }
     searchCount.textContent = text;
-    if (searchCount2) searchCount2.textContent = text;
   }
 
   function goToMatch(index) {
