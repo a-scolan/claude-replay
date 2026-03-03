@@ -767,7 +767,7 @@ mark.search-highlight.active {
   const progressText = $("#progress-text");
   const progressBar = $("#progress-bar");
   const speedBtn = $("#speed-btn");
-  const SPEED_STEPS = [0.5, 1, 1.5, 2, "RT"];
+  const SPEED_STEPS = [0.5, 1, 1.5, 2];
   const toggleThinking = $("#toggle-thinking");
   const toggleTools = $("#toggle-tools");
 
@@ -1125,31 +1125,9 @@ mark.search-highlight.active {
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
   }
 
-  // Get real-time delay between current turn and next turn from timestamps
-  const RT_MAX_DELAY = 10000; // cap idle gaps at 10s
-  function getRtDelay() {
-    if (currentTurn <= 0 || currentTurn >= TURNS.length) return 1000;
-    const cur = TURNS[currentTurn - 1];
-    const next = TURNS[currentTurn];
-    if (!cur.timestamp || !next.timestamp) return 1000;
-    const delta = new Date(next.timestamp).getTime() - new Date(cur.timestamp).getTime();
-    return Math.min(Math.max(delta, 100), RT_MAX_DELAY);
-  }
-
   function playStep() {
     if (!playing) return;
     if (currentTurn >= TURNS.length) { stopPlay(); return; }
-
-    // In RT mode, wait the real timestamp delta BEFORE showing the next turn
-    if (speed === "RT") {
-      const delay = getRtDelay();
-      playTimer = setTimeout(() => {
-        if (!playing) return;
-        showUpTo(currentTurn + 1);
-        playStep();
-      }, delay);
-      return;
-    }
 
     // Show next turn
     showUpTo(currentTurn + 1);
@@ -1253,9 +1231,8 @@ mark.search-highlight.active {
   btnPrev.addEventListener("click", stepBack);
 
   function updateSpeedLabel() {
-    const label = speed === "RT" ? "RT" : speed + "x";
-    speedBtn.textContent = label;
-    speedBtn2.textContent = label;
+    speedBtn.textContent = speed + "x";
+    speedBtn2.textContent = speed + "x";
   }
 
   speedBtn.addEventListener("click", () => {
