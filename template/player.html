@@ -879,6 +879,7 @@ body.scroll-bottom .transcript {
   let playTimer = null;
   let speed = /*INITIAL_SPEED*/1;
   let animateCancelFn = null;
+  let animatePausedState = null; // { turnIndex, blockIdx } when paused mid-turn
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
@@ -1343,6 +1344,7 @@ body.scroll-bottom .transcript {
 
   function stepForward() {
     if (playing) stopPlay();
+    animatePausedState = null;
     if (currentTurn < TURNS.length) {
       showUpTo(currentTurn + 1);
     }
@@ -1350,6 +1352,7 @@ body.scroll-bottom .transcript {
 
   function stepBack() {
     if (playing) stopPlay();
+    animatePausedState = null;
     if (currentTurn > 0) {
       showUpTo(currentTurn - 1);
     }
@@ -1359,6 +1362,7 @@ body.scroll-bottom .transcript {
     if (currentTurn >= TURNS.length) {
       // Reset if at end
       currentTurn = 0;
+      animatePausedState = null;
       for (const el of transcript.children) el.classList.remove("visible");
       if (ANIMATE) {
         for (const w of transcript.querySelectorAll(".block-wrapper")) {
@@ -1370,6 +1374,19 @@ body.scroll-bottom .transcript {
     playing = true;
     btnPlay.innerHTML = "&#9646;&#9646;";
     btnPlay.classList.add("active");
+
+    // Resume mid-turn if we paused inside a block animation
+    if (animatePausedState && ANIMATE) {
+      const ps = animatePausedState;
+      animatePausedState = null;
+      animateCancelFn = animateTurn(ps.turnIndex, () => {
+        animateCancelFn = null;
+        if (!playing) return;
+        playStep();
+      }, ps.blockIdx);
+      return;
+    }
+
     playStep();
   }
 
@@ -1412,7 +1429,7 @@ body.scroll-bottom .transcript {
    * Reads speed live so changes take effect immediately.
    * Returns a cancel function that instantly reveals remaining blocks.
    */
-  function animateTurn(turnIndex, onComplete) {
+  function animateTurn(turnIndex, onComplete, startFrom) {
     const turn = TURNS[turnIndex];
     if (!turn) { onComplete(); return function(){}; }
 
@@ -1456,7 +1473,7 @@ body.scroll-bottom .transcript {
 
     let cancelled = false;
     let currentWaitCancel = null;
-    let currentIdx = 0;
+    let currentIdx = startFrom || 0;
 
     function revealWrapper(idx) {
       const w = wrappers[idx];
@@ -1474,16 +1491,9 @@ body.scroll-bottom .transcript {
       });
     }
 
-    function revealAll() {
-      for (const w of wrappers) {
-        w.classList.remove("block-hidden");
-        w.classList.remove("block-revealing");
-      }
-    }
-
     function revealNext() {
       if (cancelled || currentIdx >= gaps.length) {
-        if (!cancelled) onComplete();
+        if (!cancelled) { animatePausedState = null; onComplete(); }
         return;
       }
       const idx = currentIdx;
@@ -1508,7 +1518,8 @@ body.scroll-bottom .transcript {
       if (cancelled) return;
       cancelled = true;
       if (currentWaitCancel) { currentWaitCancel(); currentWaitCancel = null; }
-      revealAll();
+      // Freeze in place — save where we paused
+      animatePausedState = { turnIndex, blockIdx: currentIdx };
     }
 
     // Start the chain
@@ -1742,12 +1753,24 @@ body.scroll-bottom .transcript {
   toggleThinking.addEventListener("change", applyVisibility);
   toggleTools.addEventListener("change", applyVisibility);
 
+  // Expanding/collapsing sections pauses playback
+  let expandPaused = false;
+  transcript.addEventListener("click", (e) => {
+    expandPaused = false;
+    if (playing && (e.target.closest(".turn-header") || e.target.closest(".thinking-header") || e.target.closest(".tool-header") || e.target.closest(".tool-group-header") || e.target.closest(".collapsible-toggle"))) {
+      stopPlay();
+      expandPaused = true;
+    }
+  }, true); // capture phase so it fires before the inline onclick
+
   // Click on a turn to make it active
   transcript.addEventListener("click", (e) => {
+    if (expandPaused) return; // don't reset state when pausing from expand
     const turn = e.target.closest(".turn");
     if (!turn) return;
     const idx = parseInt(turn.dataset.index, 10);
     // Mark turns up to clicked one as visible, without scrolling
+    animatePausedState = null;
     currentTurn = idx;
     const turns = turnElements();
     for (let i = 0; i < turns.length; i++) {
