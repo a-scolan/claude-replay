@@ -29,8 +29,10 @@ body {
 .controls {
   position: fixed;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 960px;
   z-index: 100;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
@@ -53,12 +55,18 @@ body {
   border-radius: 4px;
   padding: 4px 10px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   transition: background 0.15s;
   flex-shrink: 0;
+  height: 34px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .controls button:hover { background: var(--border); }
+#btn-play { width: 36px; }
 .controls button.active { background: var(--accent-dim); border-color: var(--accent); }
 
 .bar-title {
@@ -125,16 +133,43 @@ body.in-iframe .bar-title:hover {
 }
 
 
-.speed-control {
-  display: flex;
-  align-items: center;
-  font-size: 11px;
+.speed-wrap {
+  position: relative;
 }
-.speed-control button {
-  min-width: 44px;
-  text-align: center;
+.speed-wrap button#speed-btn {
   font-variant-numeric: tabular-nums;
 }
+.speed-popover {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  min-width: 60px;
+}
+.speed-wrap.open .speed-popover { display: block; }
+.speed-popover button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 16px;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+}
+.speed-popover button:hover { background: var(--bg-hover); color: var(--text); }
+.speed-popover button.active { color: var(--accent); font-weight: 600; }
 
 .filter-wrap {
   position: relative;
@@ -175,7 +210,6 @@ body.in-iframe .bar-title:hover {
   flex-wrap: wrap;
   justify-content: center;
 }
-body.in-iframe .controls-secondary { display: none; }
 
 /* More menu (replaces secondary controls on mobile + iframe) */
 .more-wrap { position: relative; }
@@ -225,18 +259,29 @@ body.in-iframe .controls-secondary { display: none; }
   margin: 4px 0;
 }
 
-#more-btn { display: none; }
+#more-btn {
+  display: none;
+  background: none !important;
+  border: none !important;
+  font-size: 16px;
+  font-weight: bold;
+}
+#chapter-btn { font-size: 14px; }
 
 @media (max-width: 600px) {
-  #more-btn { display: inline-flex; }
-  .controls-secondary { display: none; }
-  .progress-text { display: none; }
-  .chapter-wrap { display: none !important; }
+  body:not(.in-iframe) #more-btn { display: inline-flex; }
+  body:not(.in-iframe) .controls-secondary { display: none; }
+  body:not(.in-iframe) .progress-text { display: none; }
+  body:not(.in-iframe) .chapter-wrap { display: none !important; }
 }
-body.in-iframe .controls-secondary { display: none; }
+/* iframe: show speed + filter directly */
 body.in-iframe #more-btn { display: inline-flex; }
 body.in-iframe .progress-text { display: none; }
 body.in-iframe .chapter-wrap { display: none !important; }
+/* Narrow iframes: collapse everything like mobile */
+@media (max-width: 400px) {
+  body.in-iframe .controls-secondary { display: none; }
+}
 
 /* Transcript area */
 .transcript {
@@ -535,41 +580,6 @@ body.in-iframe .chapter-wrap { display: none !important; }
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* Search */
-.search-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-}
-.search-group input[type="text"] {
-  width: 110px;
-  min-width: 70px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-family: inherit;
-  font-size: 16px;
-  outline: none;
-}
-.search-group input[type="text"]:focus {
-  border-color: var(--accent);
-}
-.search-count {
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-mark.search-highlight {
-  background: var(--orange);
-  color: var(--bg);
-  border-radius: 2px;
-}
-mark.search-highlight.active {
-  background: var(--accent);
-}
-
 /* Mobile: larger touch targets, prevent iOS zoom */
 @media (max-width: 600px) {
   .controls-row {
@@ -582,12 +592,6 @@ mark.search-highlight.active {
     padding: 6px 10px;
     font-size: 14px;
   }
-  .search-group input[type="text"] {
-    height: 40px;
-    width: 120px;
-    min-width: 80px;
-    padding: 6px 10px;
-  }
   .filter-popover label {
     font-size: 14px;
     padding: 6px 0;
@@ -598,9 +602,6 @@ mark.search-highlight.active {
   }
   .controls-secondary {
     gap: 10px;
-  }
-  .search-count {
-    font-size: 13px;
   }
 }
 
@@ -708,13 +709,26 @@ mark.search-highlight.active {
       <button id="btn-play" title="Play / Pause">&#9654;</button>
       <button id="btn-next" title="Next turn">&rarr;</button>
       <a class="bar-title" id="bar-title" title="/*PAGE_TITLE*/">/*PAGE_TITLE*/</a>
-      <span class="progress-text" id="progress-text">0 / 0</span>
+      <span class="progress-text" id="progress-text">0 of 0</span>
       <div class="chapter-wrap" id="chapter-wrap" style="display:none">
-        <button id="chapter-btn" title="Chapters" style="font-size:16px">&#9776;</button>
+        <button id="chapter-btn" title="Chapters">&#9776;</button>
         <div class="chapter-menu" id="chapter-menu"></div>
       </div>
+      <div class="controls-secondary">
+        <div class="speed-wrap" id="speed-wrap">
+          <button id="speed-btn" title="Speed">/*INITIAL_SPEED*/x</button>
+          <div class="speed-popover" id="speed-popover"></div>
+        </div>
+        <div class="filter-wrap" id="filter-wrap">
+          <button id="filter-btn" title="Filter content"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A.5.5 0 0 1 1.5 2h13a.5.5 0 0 1 .4.8L10 8.7V13.5a.5.5 0 0 1-.7.5l-2.5-1.2a.5.5 0 0 1-.3-.5V8.7L1.1 2.8A.5.5 0 0 1 1 2.5z"/></svg></button>
+          <div class="filter-popover">
+            <label><input type="checkbox" id="toggle-thinking" /*CHECKED_THINKING*/> Thinking</label>
+            <label><input type="checkbox" id="toggle-tools" /*CHECKED_TOOLS*/> Tools</label>
+          </div>
+        </div>
+      </div>
       <div class="more-wrap" id="more-wrap">
-        <button id="more-btn" title="More" style="background:none;border:none;font-size:22px;font-weight:bold;padding:4px 4px;line-height:1;vertical-align:middle">&#x22EE;</button>
+        <button id="more-btn" title="More">&#x22EE;</button>
         <div class="more-popover" id="more-popover">
           <div class="more-row">
             <span class="more-row-label">Speed</span>
@@ -728,22 +742,6 @@ mark.search-highlight.active {
             <hr class="more-divider">
             <div id="more-chapter-list"></div>
           </div>
-        </div>
-      </div>
-      <div class="controls-secondary">
-        <div class="speed-control">
-          <button id="speed-btn" title="Cycle speed">/*INITIAL_SPEED*/x</button>
-        </div>
-        <div class="filter-wrap" id="filter-wrap">
-          <button id="filter-btn" title="Filter content"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A.5.5 0 0 1 1.5 2h13a.5.5 0 0 1 .4.8L10 8.7V13.5a.5.5 0 0 1-.7.5l-2.5-1.2a.5.5 0 0 1-.3-.5V8.7L1.1 2.8A.5.5 0 0 1 1 2.5z"/></svg></button>
-          <div class="filter-popover">
-            <label><input type="checkbox" id="toggle-thinking" /*CHECKED_THINKING*/> Thinking</label>
-            <label><input type="checkbox" id="toggle-tools" /*CHECKED_TOOLS*/> Tools</label>
-          </div>
-        </div>
-        <div class="search-group">
-          <input type="text" id="search-input" placeholder="Search...">
-          <span class="search-count" id="search-count"></span>
         </div>
       </div>
     </div>
@@ -971,7 +969,7 @@ mark.search-highlight.active {
     const total = TURNS.length;
     const pct = total ? (currentTurn / total) * 100 : 0;
     progressFill.style.width = pct + "%";
-    progressText.textContent = currentTurn + " / " + total;
+    progressText.textContent = currentTurn + " of " + total;
     // Update bookmark dot states
     let activeDot = null;
     for (const dot of progressBar.querySelectorAll(".bookmark-dot")) {
@@ -1428,11 +1426,21 @@ mark.search-highlight.active {
     applyVisibility();
   });
 
+  // Event listeners
+  btnPlay.addEventListener("click", () => playing ? stopPlay() : startPlay());
+  btnNext.addEventListener("click", stepForward);
+  btnPrev.addEventListener("click", stepBack);
+
+  // Speed popover
+  const speedWrap = $("#speed-wrap");
+  const speedPopover = $("#speed-popover");
+
   // Filter popover
   const filterWrap = $("#filter-wrap");
   const filterBtn = $("#filter-btn");
   filterBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    speedWrap.classList.remove("open");
     filterWrap.classList.toggle("open");
   });
   document.addEventListener("click", (e) => {
@@ -1441,20 +1449,36 @@ mark.search-highlight.active {
     }
   });
 
-  // Event listeners
-  btnPlay.addEventListener("click", () => playing ? stopPlay() : startPlay());
-  btnNext.addEventListener("click", stepForward);
-  btnPrev.addEventListener("click", stepBack);
+  // Populate speed popover with buttons
+  for (let i = SPEED_STEPS.length - 1; i >= 0; i--) { const s = SPEED_STEPS[i];
+    const btn = document.createElement("button");
+    btn.textContent = s + "x";
+    btn.dataset.speed = s;
+    if (s === speed) btn.classList.add("active");
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      speed = s;
+      updateSpeedLabel();
+      speedWrap.classList.remove("open");
+    });
+    speedPopover.appendChild(btn);
+  }
 
   function updateSpeedLabel() {
     speedBtn.textContent = speed + "x";
     speedBtn2.textContent = speed + "x";
+    for (const btn of speedPopover.querySelectorAll("button")) {
+      btn.classList.toggle("active", parseFloat(btn.dataset.speed) === speed);
+    }
   }
 
-  speedBtn.addEventListener("click", () => {
-    const idx = SPEED_STEPS.indexOf(speed);
-    speed = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
-    updateSpeedLabel();
+  speedBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    filterWrap.classList.remove("open");
+    speedWrap.classList.toggle("open");
+  });
+  document.addEventListener("click", (e) => {
+    if (!speedWrap.contains(e.target)) speedWrap.classList.remove("open");
   });
 
   function seekFromX(clientX) {
@@ -1510,215 +1534,6 @@ mark.search-highlight.active {
     if (e.key === " " || e.key === "k") { e.preventDefault(); playing ? stopPlay() : startPlay(); }
     if (e.key === "ArrowRight" || e.key === "l") { e.preventDefault(); stepForward(); }
     if (e.key === "ArrowLeft" || e.key === "h") { e.preventDefault(); stepBack(); }
-  });
-
-  // --- Search ---
-  const searchInput = $("#search-input");
-  const searchCount = $("#search-count");
-
-  let searchMatches = [];
-  let currentMatch = -1;
-  let searchDebounce = null;
-
-  function clearHighlights() {
-    for (const m of document.querySelectorAll("mark.search-highlight")) {
-      const parent = m.parentNode;
-      parent.replaceChild(document.createTextNode(m.textContent), m);
-      parent.normalize();
-    }
-    searchMatches = [];
-    currentMatch = -1;
-  }
-
-  function updateSearchCount() {
-    let text;
-    if (searchMatches.length === 0) {
-      text = searchInput.value.trim() ? "no matches" : "";
-    } else {
-      text = (currentMatch + 1) + "/" + searchMatches.length;
-    }
-    searchCount.textContent = text;
-  }
-
-  function goToMatch(index) {
-    if (searchMatches.length === 0) return;
-    // Remove active from previous
-    if (currentMatch >= 0 && currentMatch < searchMatches.length) {
-      searchMatches[currentMatch].classList.remove("active");
-    }
-    currentMatch = ((index % searchMatches.length) + searchMatches.length) % searchMatches.length;
-    const mark = searchMatches[currentMatch];
-    mark.classList.add("active");
-
-    // Expand any collapsed ancestors — collect them first (leaf to root),
-    // then expand root-to-leaf so parents are visible before children
-    const toExpand = [];
-    let node = mark;
-    while (node && node !== document.body) {
-      if (node.classList) toExpand.push(node);
-      node = node.parentNode;
-    }
-    for (const n of toExpand.reverse()) {
-      if (n.classList.contains("turn") && n.classList.contains("collapsed")) {
-        n.classList.remove("collapsed");
-      }
-      // Ensure turn is visible
-      if (n.classList.contains("turn")) {
-        const idx = parseInt(n.dataset.index, 10);
-        if (idx >= currentTurn) showUpTo(idx);
-      }
-      if (n.classList.contains("tool-group") && !n.classList.contains("open")) {
-        n.classList.add("open");
-      }
-      if (n.classList.contains("tool-block") && !n.classList.contains("open")) {
-        n.classList.add("open");
-      }
-      if (n.classList.contains("thinking-block") && !n.classList.contains("open")) {
-        n.classList.add("open");
-      }
-      if (n.classList.contains("collapsible-wrap") && n.classList.contains("is-collapsed")) {
-        n.classList.remove("is-collapsed");
-        const btn = n.querySelector(".collapsible-toggle");
-        if (btn) btn.textContent = "Show less";
-      }
-    }
-
-    // Force reflow so getBoundingClientRect is accurate
-    mark.offsetTop;
-
-    // Scroll so the match is visible above the bottom controls bar
-    const markRect = mark.getBoundingClientRect();
-    const barH = getControlsHeight();
-    const viewH = window.innerHeight;
-    const visibleTop = 0;
-    const visibleBottom = viewH - barH;
-    // If mark is outside the visible region, scroll it to ~1/3 down
-    if (markRect.top < visibleTop || markRect.bottom > visibleBottom) {
-      const targetY = markRect.top + window.scrollY - (viewH - barH) / 3;
-      window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
-    }
-    updateSearchCount();
-  }
-
-  function performSearch(query) {
-    clearHighlights();
-    if (!query) {
-      updateSearchCount();
-      return;
-    }
-
-    // Temporarily open all collapsible elements so TreeWalker can find text nodes
-    const wasClosedTools = [];
-    const wasClosedGroups = [];
-    const wasClosedThinking = [];
-    const wasCollapsed = [];
-    for (const el of document.querySelectorAll(".tool-block:not(.open)")) {
-      el.classList.add("open");
-      wasClosedTools.push(el);
-    }
-    for (const el of document.querySelectorAll(".tool-group:not(.open)")) {
-      el.classList.add("open");
-      wasClosedGroups.push(el);
-    }
-    for (const el of document.querySelectorAll(".thinking-block:not(.open)")) {
-      el.classList.add("open");
-      wasClosedThinking.push(el);
-    }
-    for (const el of document.querySelectorAll(".collapsible-wrap.is-collapsed")) {
-      el.classList.remove("is-collapsed");
-      wasCollapsed.push(el);
-    }
-
-    const containers = document.querySelectorAll(".user-text, .assistant-text, .tool-input, .tool-result, .thinking-body");
-    const queryLower = query.toLowerCase();
-
-    for (const container of containers) {
-      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-      const textNodes = [];
-      let n;
-      while ((n = walker.nextNode())) textNodes.push(n);
-
-      for (const textNode of textNodes) {
-        const text = textNode.textContent;
-        const textLower = text.toLowerCase();
-        let startIdx = 0;
-        const indices = [];
-        while (true) {
-          const pos = textLower.indexOf(queryLower, startIdx);
-          if (pos === -1) break;
-          indices.push(pos);
-          startIdx = pos + queryLower.length;
-        }
-        if (indices.length === 0) continue;
-
-        // Split text node and wrap matches
-        const frag = document.createDocumentFragment();
-        let lastEnd = 0;
-        for (const pos of indices) {
-          if (pos > lastEnd) {
-            frag.appendChild(document.createTextNode(text.slice(lastEnd, pos)));
-          }
-          const mark = document.createElement("mark");
-          mark.className = "search-highlight";
-          mark.textContent = text.slice(pos, pos + query.length);
-          frag.appendChild(mark);
-          searchMatches.push(mark);
-          lastEnd = pos + query.length;
-        }
-        if (lastEnd < text.length) {
-          frag.appendChild(document.createTextNode(text.slice(lastEnd)));
-        }
-        textNode.parentNode.replaceChild(frag, textNode);
-      }
-    }
-
-    // Restore collapsed state (only for elements that don't contain matches)
-    for (const el of wasClosedTools) {
-      if (!el.querySelector("mark.search-highlight")) el.classList.remove("open");
-    }
-    for (const el of wasClosedGroups) {
-      if (!el.querySelector("mark.search-highlight")) el.classList.remove("open");
-    }
-    for (const el of wasClosedThinking) {
-      if (!el.querySelector("mark.search-highlight")) el.classList.remove("open");
-    }
-    for (const el of wasCollapsed) {
-      if (!el.querySelector("mark.search-highlight")) el.classList.add("is-collapsed");
-    }
-
-    if (searchMatches.length > 0) {
-      goToMatch(0);
-    } else {
-      updateSearchCount();
-    }
-  }
-
-  searchInput.addEventListener("input", () => {
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => performSearch(searchInput.value.trim()), 200);
-  });
-
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (searchMatches.length > 0) {
-        goToMatch(e.shiftKey ? currentMatch - 1 : currentMatch + 1);
-      }
-    }
-    if (e.key === "Escape") {
-      searchInput.value = "";
-      performSearch("");
-      searchInput.blur();
-    }
-  });
-
-  // Ctrl+F / Cmd+F focuses search input
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
-      e.preventDefault();
-      searchInput.focus();
-      searchInput.select();
-    }
   });
 
   // Iframe detection — compact mode + title as pop-out link

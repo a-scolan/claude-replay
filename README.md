@@ -2,9 +2,21 @@
 
 > Community tool — not affiliated with or endorsed by Anthropic.
 
-Convert [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session transcripts into self-contained, embeddable HTML replays.
+Claude Code sessions are great for development, but hard to share. Screen recordings are bulky and transcripts are hard to navigate.
 
-Claude Code stores full conversation transcripts as JSONL files in `~/.claude/projects/`. These contain every user message, assistant response, tool call, tool result, and thinking block — with timestamps. **claude-replay** turns them into interactive visual replays that look like a Claude Code terminal session, suitable for blog posts, demos, and documentation.
+**claude-replay** turns raw session logs into interactive HTML replays that can be shared, embedded, and explored. The generated replay is a single HTML file with no external dependencies — you can email it, host it anywhere, or embed it in documentation.
+
+Claude Code stores full conversation transcripts as JSONL files in `~/.claude/projects/`. These contain every user message, assistant response, tool call, tool result, and thinking block — with timestamps. **claude-replay** converts them into visual replays that look like a Claude Code terminal session, suitable for blog posts, demos, and documentation.
+
+## Features
+
+- Self-contained HTML output (no dependencies)
+- Interactive playback with speed control
+- Collapse/expand tool calls and thinking blocks
+- Bookmarks / chapters
+- Secret redaction before export
+- Multiple color themes
+- Embeddable via iframe
 
 ## Installation
 
@@ -134,7 +146,8 @@ claude-replay session.jsonl --theme-file my-theme.json -o replay.html
 
 Any missing keys are filled from the `tokyo-night` defaults, so you only need to specify the colors you want to change.
 
-#### Theme variables reference
+<details>
+<summary>Theme variables reference</summary>
 
 | Variable | Used for |
 |---|---|
@@ -154,6 +167,8 @@ Any missing keys are filled from the `tokyo-night` defaults, so you only need to
 | `border` | Borders and separators |
 | `tool-bg` | Tool call block background |
 | `thinking-bg` | Thinking block background |
+
+</details>
 
 ## Embedding
 
