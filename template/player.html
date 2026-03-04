@@ -124,14 +124,6 @@ body.in-iframe .bar-title:hover {
   white-space: nowrap;
 }
 
-.countdown-text {
-  font-size: 11px;
-  color: var(--accent);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  min-width: 32px;
-}
-.countdown-text:empty { display: none; }
 
 .speed-control {
   display: flex;
@@ -717,7 +709,6 @@ mark.search-highlight.active {
       <button id="btn-next" title="Next turn">&rarr;</button>
       <a class="bar-title" id="bar-title" title="/*PAGE_TITLE*/">/*PAGE_TITLE*/</a>
       <span class="progress-text" id="progress-text">0 / 0</span>
-      <span class="countdown-text" id="countdown-text"></span>
       <div class="chapter-wrap" id="chapter-wrap" style="display:none">
         <button id="chapter-btn" title="Chapters" style="font-size:16px">&#9776;</button>
         <div class="chapter-menu" id="chapter-menu"></div>
@@ -1165,18 +1156,14 @@ mark.search-highlight.active {
     btnPlay.classList.remove("active");
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
     if (animateCancelFn) { animateCancelFn(); animateCancelFn = null; }
-    countdownEl.textContent = "";
   }
 
   const ANIMATE_MIN_DELAY = 600;       // minimum ms between consecutive block reveals
   const ANIMATE_FALLBACK_DELAY = 800;  // ms between blocks when timestamps missing
   const ANIMATE_MAX_DELAY = 10000;     // max ms between blocks (before speed scaling)
 
-  const countdownEl = $("#countdown-text");
-  let countdownTimer = null;
-
   // Adaptive wait: sleeps for gapMs/speed, but reads speed LIVE every tick
-  // so changing speed mid-wait takes effect immediately. Shows countdown.
+  // so changing speed mid-wait takes effect immediately.
   function adaptiveWait(gapMs, onDone) {
     let elapsed = 0;
     const tickMs = 100;
@@ -1185,20 +1172,15 @@ mark.search-highlight.active {
     function tick() {
       const remaining = gapMs - elapsed * speed;
       if (remaining <= 0) {
-        countdownEl.textContent = "";
         onDone();
         return;
       }
-      // Show countdown for waits > 1s
-      const remSec = Math.ceil(remaining / 1000);
-      countdownEl.textContent = remaining > 800 ? remSec + "s" : "";
       elapsed += tickMs;
       timer = setTimeout(tick, tickMs);
     }
 
     tick();
-    // Return cancel function
-    return function() { clearTimeout(timer); countdownEl.textContent = ""; };
+    return function() { clearTimeout(timer); };
   }
 
   /**
@@ -1273,7 +1255,6 @@ mark.search-highlight.active {
         w.classList.remove("block-hidden");
         w.classList.remove("block-revealing");
       }
-      countdownEl.textContent = "";
     }
 
     function revealNext() {
