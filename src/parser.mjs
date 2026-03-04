@@ -5,8 +5,8 @@
 import { readFileSync } from "node:fs";
 
 /**
- * @typedef {{ tool_use_id: string, name: string, input: object, result: string|null }} ToolCall
- * @typedef {{ kind: string, text: string, tool_call: ToolCall|null }} AssistantBlock
+ * @typedef {{ tool_use_id: string, name: string, input: object, result: string|null, resultTimestamp: string|null }} ToolCall
+ * @typedef {{ kind: string, text: string, tool_call: ToolCall|null, timestamp: string|null }} AssistantBlock
  * @typedef {{ index: number, user_text: string, blocks: AssistantBlock[], timestamp: string }} Turn
  */
 
@@ -72,6 +72,7 @@ function collectAssistantBlocks(entries, start) {
     const role = entry.message?.role ?? entry.type;
     if (role !== "assistant") break;
 
+    const entryTs = entry.timestamp ?? null;
     const content = entry.message?.content ?? [];
     if (Array.isArray(content)) {
       for (const block of content) {
@@ -82,14 +83,14 @@ function collectAssistantBlocks(entries, start) {
           const key = `text:${text.slice(0, 100)}`;
           if (seenKeys.has(key)) continue;
           seenKeys.add(key);
-          blocks.push({ kind: "text", text, tool_call: null });
+          blocks.push({ kind: "text", text, tool_call: null, timestamp: entryTs });
         } else if (btype === "thinking") {
           const text = (block.thinking ?? "").trim();
           if (!text) continue;
           const key = `thinking:${text.slice(0, 100)}`;
           if (seenKeys.has(key)) continue;
           seenKeys.add(key);
-          blocks.push({ kind: "thinking", text, tool_call: null });
+          blocks.push({ kind: "thinking", text, tool_call: null, timestamp: entryTs });
         } else if (btype === "tool_use") {
           const toolId = block.id ?? "";
           const key = `tool_use:${toolId}`;
@@ -103,7 +104,9 @@ function collectAssistantBlocks(entries, start) {
               name: block.name ?? "",
               input: block.input ?? {},
               result: null,
+              resultTimestamp: null,
             },
+            timestamp: entryTs,
           });
         }
       }
@@ -155,6 +158,7 @@ function attachToolResults(blocks, entries, resultStart) {
                 resultText = String(resultContent);
               }
               pending.get(tid).result = resultText;
+              pending.get(tid).resultTimestamp = entry.timestamp ?? null;
               pending.delete(tid);
             }
           }

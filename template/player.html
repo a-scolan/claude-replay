@@ -682,6 +682,16 @@ mark.search-highlight.active {
   font-weight: 600;
 }
 
+/* Sub-turn animation */
+.block-hidden { display: none; }
+.block-revealing {
+  animation: blockFadeIn 0.2s ease-out;
+}
+@keyframes blockFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -751,10 +761,12 @@ mark.search-highlight.active {
 
   const TURNS = /*TURNS_JSON*/[];
   const BOOKMARKS = /*BOOKMARKS_JSON*/[];
+  const ANIMATE = "%%ANIMATE_MODE%%"==="true";
   let currentTurn = 0;
   let playing = false;
   let playTimer = null;
   let speed = /*INITIAL_SPEED*/1;
+  let animateCancelFn = null;
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
@@ -881,30 +893,32 @@ mark.search-highlight.active {
       // Group consecutive tool_use blocks into runs
       const segments = [];
       let toolRun = [];
+      let blockIdx = 0;
       for (const block of turn.blocks) {
         if (block.kind === "tool_use" && block.tool_call) {
           toolRun.push(block);
         } else {
-          if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun }); toolRun = []; }
-          segments.push({ type: "single", block });
+          if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun, blockIdx: blockIdx++ }); toolRun = []; }
+          segments.push({ type: "single", block, blockIdx: blockIdx++ });
         }
       }
-      if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun }); }
+      if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun, blockIdx: blockIdx++ }); }
 
       for (const seg of segments) {
+        const hiddenCls = ANIMATE ? " block-hidden" : "";
         if (seg.type === "single") {
           const block = seg.block;
           if (block.kind === "text") {
             const lines = countLines(block.text);
             const textContent = `<div class="assistant-text">${escapeHtml(block.text)}</div>`;
-            html += wrapCollapsible(textContent, lines, 15);
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}">${wrapCollapsible(textContent, lines, 15)}</div>`;
           } else if (block.kind === "thinking") {
-            html += `<div class="thinking-block" data-type="thinking">
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}"><div class="thinking-block" data-type="thinking">
               <div class="thinking-header" onclick="this.parentElement.classList.toggle('open')">
                 <span class="thinking-chevron">&#9654;</span> Thinking...
               </div>
               <div class="thinking-body">${escapeHtml(block.text)}</div>
-            </div>`;
+            </div></div>`;
           }
         } else {
           // Consecutive tool calls
@@ -927,20 +941,18 @@ mark.search-highlight.active {
           }).join("");
 
           if (seg.blocks.length <= 2) {
-            // Short run — render inline without grouping
-            html += toolHtml;
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}">${toolHtml}</div>`;
           } else {
-            // Long run — wrap in collapsible group
             const names = seg.blocks.map(b => b.tool_call.name);
             const uniqueNames = [...new Set(names)].join(", ");
-            html += `<div class="tool-group" data-type="tool">
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}"><div class="tool-group" data-type="tool">
               <div class="tool-group-header" onclick="this.parentElement.classList.toggle('open')">
                 <span class="tool-group-chevron">&#9654;</span>
                 ${seg.blocks.length} tool calls
                 <span class="tool-group-names">${escapeHtml(uniqueNames)}</span>
               </div>
               <div class="tool-group-body">${toolHtml}</div>
-            </div>`;
+            </div></div>`;
           }
         }
       }
@@ -1041,8 +1053,21 @@ mark.search-highlight.active {
       const el = turns[i];
       if (i < currentTurn) {
         el.classList.add("visible");
+        // When seeking (not during animated playback), reveal all blocks instantly
+        if (ANIMATE && !playing) {
+          for (const w of el.querySelectorAll(".block-wrapper.block-hidden")) {
+            w.classList.remove("block-hidden");
+          }
+        }
       } else {
         el.classList.remove("visible");
+        // Re-hide blocks in turns that are no longer visible (for seek-backward)
+        if (ANIMATE) {
+          for (const w of el.querySelectorAll(".block-wrapper")) {
+            w.classList.add("block-hidden");
+            w.classList.remove("block-revealing");
+          }
+        }
       }
     }
     // Update bookmark divider visibility
@@ -1110,6 +1135,12 @@ mark.search-highlight.active {
       // Reset if at end
       currentTurn = 0;
       for (const el of transcript.children) el.classList.remove("visible");
+      if (ANIMATE) {
+        for (const w of transcript.querySelectorAll(".block-wrapper")) {
+          w.classList.add("block-hidden");
+          w.classList.remove("block-revealing");
+        }
+      }
     }
     playing = true;
     btnPlay.innerHTML = "&#9646;&#9646;";
@@ -1123,13 +1154,196 @@ mark.search-highlight.active {
     btnPlay.innerHTML = "&#9654;";
     btnPlay.classList.remove("active");
     if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+    if (animateCancelFn) { animateCancelFn(); animateCancelFn = null; }
+  }
+
+  const ANIMATE_MIN_DELAY = 600;       // minimum ms between consecutive block reveals
+  const ANIMATE_FALLBACK_DELAY = 800;  // ms between blocks when timestamps missing
+  const ANIMATE_MAX_DELAY = 10000;     // max ms between blocks (before speed scaling)
+
+  /**
+   * Progressively reveal blocks within a turn using timestamps.
+   * Returns a cancel function that instantly reveals remaining blocks.
+   */
+  function animateTurn(turnIndex, onComplete) {
+    const turn = TURNS[turnIndex];
+    if (!turn) { onComplete(); return function(){}; }
+
+    const el = turnElements()[turnIndex];
+    if (!el) { onComplete(); return function(){}; }
+
+    const wrappers = el.querySelectorAll(".block-wrapper");
+    if (wrappers.length === 0) { onComplete(); return function(){}; }
+
+    // Build schedule: compute delay for each block
+    // Segments map to blocks — we need timestamps from the turn data
+    // The segments were built from turn.blocks grouping consecutive tool_use blocks.
+    // We rebuild the same segment structure to get timestamps.
+    const segments = [];
+    let toolRun = [];
+    for (const block of turn.blocks) {
+      if (block.kind === "tool_use" && block.tool_call) {
+        toolRun.push(block);
+      } else {
+        if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun }); toolRun = []; }
+        segments.push({ type: "single", block });
+      }
+    }
+    if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun }); }
+
+    // Get timestamp for each segment (use first block's timestamp for tool groups)
+    function getSegTs(seg) {
+      if (seg.type === "single") return seg.block.timestamp || null;
+      return (seg.blocks[0] && seg.blocks[0].timestamp) || null;
+    }
+
+    // Get result timestamp for tool segments (use last tool's resultTimestamp)
+    function getSegResultTs(seg) {
+      if (seg.type !== "tools") return null;
+      for (let i = seg.blocks.length - 1; i >= 0; i--) {
+        const rt = seg.blocks[i].tool_call && seg.blocks[i].tool_call.resultTimestamp;
+        if (rt) return rt;
+      }
+      return null;
+    }
+
+    // Build reveal items: each item is { idx, delayMs }
+    // Use timestamps to compute gaps, but enforce a minimum delay between
+    // consecutive reveals so each block is readable before the next appears.
+    const items = [];
+    const t0Str = getSegTs(segments[0]);
+    const t0 = t0Str ? new Date(t0Str).getTime() : 0;
+    let cumulativeDelay = 0;
+
+    for (let si = 0; si < segments.length && si < wrappers.length; si++) {
+      const seg = segments[si];
+      if (si === 0) {
+        items.push({ idx: 0, delayMs: 0 });
+        continue;
+      }
+      const tsStr = getSegTs(seg);
+      const prevTsStr = getSegTs(segments[si - 1]);
+      let gapMs;
+      if (tsStr && prevTsStr) {
+        gapMs = new Date(tsStr).getTime() - new Date(prevTsStr).getTime();
+      } else {
+        gapMs = ANIMATE_FALLBACK_DELAY;
+      }
+      // Enforce minimum and maximum gap
+      gapMs = Math.max(gapMs, ANIMATE_MIN_DELAY);
+      gapMs = Math.min(gapMs, ANIMATE_MAX_DELAY);
+      cumulativeDelay += gapMs / speed;
+      items.push({ idx: si, delayMs: cumulativeDelay });
+    }
+
+    let cancelled = false;
+    const timers = [];
+
+    function revealWrapper(idx) {
+      const w = wrappers[idx];
+      if (!w) return;
+      w.classList.remove("block-hidden");
+      w.classList.add("block-revealing");
+      // Scroll to keep newly revealed content visible
+      requestAnimationFrame(() => {
+        const barH = getControlsHeight();
+        const viewBottom = window.innerHeight - barH;
+        const wRect = w.getBoundingClientRect();
+        if (wRect.bottom > viewBottom) {
+          const targetY = wRect.bottom + window.scrollY - viewBottom + 20;
+          window.scrollTo({ top: targetY, behavior: "smooth" });
+        }
+      });
+    }
+
+    function revealAll() {
+      for (const w of wrappers) {
+        w.classList.remove("block-hidden");
+        w.classList.remove("block-revealing");
+      }
+    }
+
+    function cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      for (const t of timers) clearTimeout(t);
+      timers.length = 0;
+      revealAll();
+    }
+
+    // Schedule reveals
+    let maxDelay = 0;
+    for (const item of items) {
+      const t = setTimeout(() => {
+        if (cancelled) return;
+        revealWrapper(item.idx);
+      }, item.delayMs);
+      timers.push(t);
+      if (item.delayMs > maxDelay) maxDelay = item.delayMs;
+    }
+
+    // Schedule completion callback after last reveal + small buffer
+    const completionTimer = setTimeout(() => {
+      if (cancelled) return;
+      onComplete();
+    }, maxDelay + 300 / speed);
+    timers.push(completionTimer);
+
+    return cancel;
   }
 
   function playStep() {
     if (!playing) return;
     if (currentTurn >= TURNS.length) { stopPlay(); return; }
 
-    // Show next turn
+    if (ANIMATE) {
+      // Show the turn container (header + user text) immediately
+      showUpTo(currentTurn + 1);
+
+      const el = turnElements()[currentTurn - 1];
+      if (!el) { stopPlay(); return; }
+
+      // Animate blocks within the turn, then use same inter-turn timing as normal mode
+      animateCancelFn = animateTurn(currentTurn - 1, () => {
+        animateCancelFn = null;
+        if (!playing) return;
+
+        // After block animation completes, use the same dwell/scroll logic
+        // as non-animate mode so turns don't rush by
+        requestAnimationFrame(() => {
+          if (!playing) return;
+          const rect = el.getBoundingClientRect();
+          const viewH = window.innerHeight - getControlsHeight();
+          const overflow = rect.height - viewH;
+
+          if (overflow > TALL_THRESHOLD) {
+            const pauseTop = PAUSE_TOP_MS / speed;
+            const scrollDuration = Math.min(Math.max(overflow / speed * SCROLL_SPEED_FACTOR, SCROLL_MIN_MS / speed), SCROLL_MAX_MS / speed);
+            const targetY = el.offsetTop - getTopOffset() + el.offsetHeight - viewH;
+
+            playTimer = setTimeout(() => {
+              if (!playing) return;
+              smoothScrollTo(targetY, scrollDuration, () => {
+                if (!playing) return;
+                playTimer = setTimeout(() => {
+                  if (!playing) return;
+                  playStep();
+                }, PAUSE_BOTTOM_MS / speed);
+              });
+            }, pauseTop);
+          } else {
+            const delay = SHORT_TURN_DELAY_MS / speed;
+            playTimer = setTimeout(() => {
+              if (!playing) return;
+              playStep();
+            }, delay);
+          }
+        });
+      });
+      return;
+    }
+
+    // Non-animate mode: original behavior
     showUpTo(currentTurn + 1);
 
     const el = turnElements()[currentTurn - 1];
@@ -1275,6 +1489,11 @@ mark.search-highlight.active {
       const el = turns[i];
       if (i < currentTurn) {
         el.classList.add("visible");
+        if (ANIMATE) {
+          for (const w of el.querySelectorAll(".block-wrapper.block-hidden")) {
+            w.classList.remove("block-hidden");
+          }
+        }
       } else {
         el.classList.remove("visible");
       }
@@ -1595,6 +1814,11 @@ mark.search-highlight.active {
         // Mark turns up to current as visible without scrolling
         for (let i = 0; i < turns.length; i++) {
           turns[i].classList.toggle("visible", i < currentTurn);
+          if (ANIMATE && i < currentTurn) {
+            for (const w of turns[i].querySelectorAll(".block-wrapper.block-hidden")) {
+              w.classList.remove("block-hidden");
+            }
+          }
         }
         // Update dividers
         for (const div of transcript.querySelectorAll(".bookmark-divider")) {
