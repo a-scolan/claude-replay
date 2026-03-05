@@ -813,6 +813,7 @@ body.in-iframe .progress-text { display: none; }
   z-index: 200;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   min-width: 160px;
+  max-width: 280px;
   max-height: 300px;
   overflow-y: auto;
 }
@@ -837,6 +838,8 @@ body.in-iframe .progress-text { display: none; }
 .chapter-item-label {
   color: var(--orange);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Splash / title screen */
@@ -1989,6 +1992,7 @@ body.in-iframe .progress-text { display: none; }
     }
   }
 
+
   document.addEventListener("click", (e) => {
     for (const wrap of popoverWraps) {
       if (wrap.classList.contains("open") && wrap.contains(e.target)) return;
@@ -2176,6 +2180,7 @@ body.in-iframe .progress-text { display: none; }
     for (const bm of BOOKMARKS) {
       const item = document.createElement("div");
       item.className = "chapter-item";
+      item.title = bm.label;
       item.innerHTML = `<span class="chapter-item-turn">#${bm.turn}</span><span class="chapter-item-label">${escapeHtml(bm.label)}</span>`;
       item.addEventListener("click", () => {
         navigate(bm.turn, { hideActiveBlocks: true });
