@@ -20,7 +20,7 @@ describe("getTheme", () => {
 describe("listThemes", () => {
   it("returns sorted theme names", () => {
     const names = listThemes();
-    assert.deepEqual(names, ["dracula", "github-light", "monokai", "solarized-dark", "tokyo-night"]);
+    assert.deepEqual(names, ["bubbles", "dracula", "github-light", "monokai", "solarized-dark", "tokyo-night"]);
   });
 });
 

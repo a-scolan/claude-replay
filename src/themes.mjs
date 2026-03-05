@@ -103,6 +103,63 @@ const BUILTIN_THEMES = {
     "tool-bg": "#21222c",
     "thinking-bg": "#1e1f29",
   },
+  "bubbles": {
+    "bg": "#f0f2f5",
+    "bg-surface": "#ffffff",
+    "bg-hover": "#e4e6eb",
+    "text": "#1c1e21",
+    "text-dim": "#65676b",
+    "text-bright": "#000000",
+    "accent": "#0084ff",
+    "accent-dim": "#0066cc",
+    "green": "#31a24c",
+    "blue": "#0084ff",
+    "orange": "#f5a623",
+    "red": "#e4405f",
+    "cyan": "#0097a7",
+    "border": "#dddfe2",
+    "tool-bg": "#e4e6eb",
+    "thinking-bg": "#e8daef",
+    "extraCss": `
+      .turn { margin-bottom: 16px; }
+      .user-msg {
+        display: flex; align-items: flex-end; justify-content: flex-end; gap: 8px; margin-bottom: 12px;
+      }
+      .user-msg::after {
+        content: "\\1F464"; font-size: 24px; flex-shrink: 0; line-height: 1;
+      }
+      .user-prompt { display: none; }
+      .user-text {
+        background: #0084ff; color: #fff; border-radius: 18px 18px 4px 18px;
+        padding: 10px 16px; max-width: 75%; display: inline-block; font-weight: normal;
+      }
+      .turn-header-ts { color: #fff8; }
+      .turn > :not(.user-msg):not(.block-wrapper) { padding-left: 40px; }
+      .block-wrapper { padding-left: 40px; position: relative; }
+      .block-wrapper::before {
+        content: "\\1F916"; position: absolute; left: 4px; top: 4px; font-size: 20px; line-height: 1;
+      }
+      .block-wrapper + .block-wrapper::before { content: none; }
+      .assistant-text {
+        background: #fff; border-radius: 18px 18px 18px 4px;
+        padding: 10px 16px; max-width: 85%; display: inline-block; color: #1c1e21;
+        border: 1px solid #dddfe2;
+      }
+      .thinking-block {
+        background: #f3ebfa; border-radius: 18px 18px 18px 4px;
+        padding: 10px 16px; max-width: 85%; border: 1px solid #d6c8e4;
+      }
+      .thinking-header { color: #6b3fa0; }
+      .thinking-body { color: #3d2066; }
+      .tool-block, .tool-group {
+        background: #fff; border-radius: 12px;
+        padding: 8px 12px; max-width: 85%; border: 1px solid #dddfe2;
+      }
+      .tool-header { color: #1c1e21; }
+      .tool-name { color: #0066cc; }
+      .bookmark-divider { color: #1c1e21; border-color: #dddfe2; }
+    `,
+  },
 };
 
 /**
@@ -143,7 +200,9 @@ export function themeToCss(theme) {
   for (const v of THEME_VARS) {
     if (v in theme) lines.push(`  --${v}: ${theme[v]};`);
   }
-  return ":root {\n" + lines.join("\n") + "\n}";
+  let css = ":root {\n" + lines.join("\n") + "\n}";
+  if (theme.extraCss) css += "\n" + theme.extraCss;
+  return css;
 }
 
 /**
