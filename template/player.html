@@ -749,6 +749,21 @@ body.scroll-bottom .transcript {
   }
 }
 
+/* Turn tick dots on progress bar */
+.turn-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.5;
+}
+.turn-dot.reached { opacity: 1; background: var(--text); }
+
 /* Bookmark dots on progress bar */
 .bookmark-dot {
   position: absolute;
@@ -1547,7 +1562,6 @@ body.scroll-bottom .transcript {
         if (wRect.bottom > viewBottom) {
           cancelScrollAnim();
           const targetY = wRect.bottom + window.scrollY - viewBottom + 20;
-          // First block in a turn: smooth (big jump). Rest: instant (avoid fighting).
           window.scrollTo({ top: targetY, behavior: idx === 0 ? "smooth" : "instant" });
         }
       });
@@ -1599,7 +1613,6 @@ body.scroll-bottom .transcript {
 
     if (ANIMATE) {
       // Show the turn container (header + user text) immediately
-      // skipScroll: block reveals handle their own scrolling during playback
       showUpTo(currentTurn + 1, { skipScroll: true });
 
       const el = turnElements()[currentTurn - 1];
@@ -1742,7 +1755,7 @@ body.scroll-bottom .transcript {
   function stepBack() {
     if (playing) stopPlay();
     animatePausedState = null;
-    if (currentTurn > 0) {
+    if (currentTurn > 1) {
       showUpTo(currentTurn - 1, { anchorTop: true });
     }
   }
@@ -1753,9 +1766,14 @@ body.scroll-bottom .transcript {
 
   function updateProgress() {
     const total = TURNS.length;
-    const pct = total ? (currentTurn / total) * 100 : 0;
+    const pct = total > 1 ? ((currentTurn - 1) / (total - 1)) * 100 : (currentTurn ? 100 : 0);
     progressFill.style.width = pct + "%";
     progressText.textContent = currentTurn + " of " + total;
+    // Update turn dot states
+    for (const dot of progressBar.querySelectorAll(".turn-dot")) {
+      const turn = parseInt(dot.dataset.turn, 10);
+      dot.classList.toggle("reached", turn <= currentTurn);
+    }
     // Update bookmark dot states
     let activeDot = null;
     for (const dot of progressBar.querySelectorAll(".bookmark-dot")) {
@@ -1779,8 +1797,8 @@ body.scroll-bottom .transcript {
   function seekFromX(clientX) {
     const rect = progressBar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const target = Math.round(pct * TURNS.length);
-    showUpTo(target);
+    const target = Math.max(1, Math.min(TURNS.length, Math.round(pct * (TURNS.length - 1)) + 1));
+    showUpTo(target, { anchorTop: true });
   }
 
   // Scroll-based activation: as user scrolls down, reveal new turns
@@ -2005,6 +2023,16 @@ body.scroll-bottom .transcript {
     }
   }, { passive: true });
 
+  // --- Turn dots on progress bar ---
+  const lastIdx = TURNS.length - 1;
+  for (let i = 0; i < TURNS.length; i++) {
+    const dot = document.createElement("div");
+    dot.className = "turn-dot";
+    dot.dataset.turn = i + 1;
+    dot.style.left = (lastIdx > 0 ? (i / lastIdx) * 100 : 0) + "%";
+    progressBar.appendChild(dot);
+  }
+
   // --- Bookmarks / Chapters ---
   if (BOOKMARKS.length > 0) {
     chapterWrap.style.display = "";
@@ -2014,7 +2042,7 @@ body.scroll-bottom .transcript {
       const dot = document.createElement("div");
       dot.className = "bookmark-dot";
       dot.dataset.turn = bm.turn;
-      const pct = TURNS.length ? ((bm.turn - 1) / TURNS.length) * 100 : 0;
+      const pct = TURNS.length > 1 ? ((bm.turn - 1) / (TURNS.length - 1)) * 100 : 0;
       dot.style.left = pct + "%";
       progressBar.appendChild(dot);
     }
@@ -2029,7 +2057,7 @@ body.scroll-bottom .transcript {
       item.className = "chapter-item";
       item.innerHTML = `<span class="chapter-item-turn">#${bm.turn}</span><span class="chapter-item-label">${escapeHtml(bm.label)}</span>`;
       item.addEventListener("click", () => {
-        showUpTo(bm.turn);
+        showUpTo(bm.turn, { anchorTop: true });
         chapterWrap.classList.remove("open");
       });
       chapterMenu.appendChild(item);
@@ -2039,7 +2067,7 @@ body.scroll-bottom .transcript {
       item2.className = "chapter-item";
       item2.innerHTML = item.innerHTML;
       item2.addEventListener("click", () => {
-        showUpTo(bm.turn);
+        showUpTo(bm.turn, { anchorTop: true });
         moreWrap.classList.remove("open");
       });
       moreChapterList.appendChild(item2);
@@ -2061,7 +2089,9 @@ body.scroll-bottom .transcript {
   applyVisibility();
   const hashMatch = location.hash.match(/turn=(\d+)/);
   const startTurn = hashMatch ? Math.min(parseInt(hashMatch[1], 10), TURNS.length) : (TURNS.length > 0 ? 1 : 0);
-  if (startTurn > 0) showUpTo(startTurn);
+  if (startTurn > 0) {
+    showUpTo(startTurn);
+  }
 })();
 </script>
 </body>
