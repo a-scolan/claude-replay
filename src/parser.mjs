@@ -21,6 +21,20 @@ function cleanSystemTags(text) {
   text = text.replace(/\n*Read the output file to retrieve the result:[^\n]*/g, "");
   // Remove <system-reminder> blocks
   text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "");
+  // Remove internal caveat boilerplate (not useful to viewers)
+  text = text.replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/g, "");
+  // Extract slash command name, keep as visible text
+  text = text.replace(/<command-name>([\s\S]*?)<\/command-name>\s*/g, (_, name) => name.trim() + "\n");
+  // Remove command-message (redundant with command-name) and empty args
+  text = text.replace(/<command-message>[\s\S]*?<\/command-message>\s*/g, "");
+  text = text.replace(/<command-args>\s*<\/command-args>\s*/g, "");
+  // Keep non-empty command args
+  text = text.replace(/<command-args>([\s\S]*?)<\/command-args>\s*/g, (_, args) => {
+    const trimmed = args.trim();
+    return trimmed ? trimmed + "\n" : "";
+  });
+  // Remove local command stdout (system output, not user text)
+  text = text.replace(/<local-command-stdout>[\s\S]*?<\/local-command-stdout>\s*/g, "");
   return text.trim();
 }
 
@@ -90,7 +104,7 @@ function collectAssistantBlocks(entries, start) {
         const btype = block.type;
         if (btype === "text") {
           const text = (block.text ?? "").trim();
-          if (!text) continue;
+          if (!text || text === "No response requested.") continue;
           const key = `text:${text.slice(0, 100)}`;
           if (seenKeys.has(key)) continue;
           seenKeys.add(key);
@@ -208,6 +222,20 @@ export function parseTranscript(filePath) {
       }
       let userText = extractText(content);
       const timestamp = entry.timestamp ?? "";
+      i++;
+
+      // Absorb consecutive non-tool-result user messages into the same turn
+      // (e.g. CLI command sequences: caveat + /exit + stdout)
+      while (i < entries.length) {
+        const next = entries[i];
+        const nextRole = next.message?.role ?? next.type;
+        if (nextRole !== "user") break;
+        const nextContent = next.message?.content ?? "";
+        if (isToolResultOnly(nextContent)) break;
+        const nextText = extractText(nextContent);
+        if (nextText) userText = userText ? userText + "\n" + nextText : nextText;
+        i++;
+      }
 
       // Extract system events (bg-task notifications) from user text
       const systemEvents = [];
@@ -216,8 +244,6 @@ export function parseTranscript(filePath) {
         return "";
       });
       userText = userText.trim();
-
-      i++;
 
       const [assistantBlocks, nextI] = collectAssistantBlocks(entries, i);
       i = nextI;
@@ -255,7 +281,23 @@ export function parseTranscript(filePath) {
     }
   }
 
-  return turns;
+  // Drop empty turns (e.g. slash commands that produce no visible content)
+  const filtered = turns.filter((t) => {
+    if (t.user_text) return true;
+    if (t.system_events?.length) return true;
+    // Keep if there are meaningful assistant blocks
+    return t.blocks.some((b) => {
+      if (b.kind === "tool_use") return true;
+      if (b.kind === "text" && b.text && b.text !== "No response requested.") return true;
+      if (b.kind === "thinking" && b.text) return true;
+      return false;
+    });
+  });
+  // Re-index after filtering
+  for (let j = 0; j < filtered.length; j++) {
+    filtered[j].index = j + 1;
+  }
+  return filtered;
 }
 
 /**
