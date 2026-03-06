@@ -1230,6 +1230,10 @@ body.in-iframe .bar-title:hover {
 
   function getControlsHeight() { return controlsEl.offsetHeight; }
 
+  function collapseExpanded(el) {
+    for (const o of el.querySelectorAll(".open")) o.classList.remove("open");
+  }
+
   // Splash screen helpers
   function showSplash() { splash.classList.remove("hidden"); }
   function hideSplash() { splash.classList.add("hidden"); }
@@ -1516,6 +1520,7 @@ body.in-iframe .bar-title:hover {
           }
         }
       } else {
+        collapseExpanded(el);
         el.classList.remove("visible");
         hideAllBlocks(el);
       }
@@ -1718,7 +1723,10 @@ body.in-iframe .bar-title:hover {
       // Reset if at end
       currentTurn = 0;
       animatePausedState = null;
-      for (const el of transcript.children) el.classList.remove("visible");
+      for (const el of transcript.children) {
+        collapseExpanded(el);
+        el.classList.remove("visible");
+      }
       for (const w of transcript.querySelectorAll(".block-wrapper")) {
         w.classList.add("block-hidden");
         w.classList.remove("block-revealing");
@@ -1892,6 +1900,7 @@ body.in-iframe .bar-title:hover {
       if (revealedBlocks.length > 0) {
         // Hide last revealed block within current turn
         const last = revealedBlocks[revealedBlocks.length - 1];
+        collapseExpanded(last);
         last.classList.add("block-hidden");
         last.classList.remove("block-revealing", "block-active");
         // Scroll down to show what remains
@@ -1913,8 +1922,12 @@ body.in-iframe .bar-title:hover {
     } else {
       currentTurn--;
       const turns = turnElements();
-      // Hide the turn we just left
-      turns[currentTurn]?.classList.remove("visible");
+      // Hide the turn we just left and close any expanded blocks
+      const leftTurn = turns[currentTurn];
+      if (leftTurn) {
+        collapseExpanded(leftTurn);
+        leftTurn.classList.remove("visible");
+      }
       // Previous turn should have all blocks revealed
       const prevEl = turns[currentTurn - 1];
       if (prevEl) {
