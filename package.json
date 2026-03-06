@@ -28,5 +28,9 @@
     "transcript",
     "html"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/es617/claude-replay"
+  },
   "license": "MIT"
 }
