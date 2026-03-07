@@ -1,5 +1,5 @@
 /**
- * Parse Claude Code JSONL transcripts into structured turns.
+ * Parse Claude Code and Cursor JSONL transcripts into structured turns.
  */
 
 import { readFileSync } from "node:fs";
@@ -19,6 +19,8 @@ function cleanSystemTags(text) {
     (_, status, summary) => `[bg-task: ${summary}]`);
   // Remove trailing "Read the output file..." lines that follow notifications
   text = text.replace(/\n*Read the output file to retrieve the result:[^\n]*/g, "");
+  // Unwrap Cursor's <user_query> tags
+  text = text.replace(/<user_query>([\s\S]*?)<\/user_query>\s*/g, (_, inner) => inner.trim());
   // Remove <system-reminder> blocks
   text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "");
   // Remove internal caveat boilerplate (not useful to viewers)
@@ -56,11 +58,32 @@ function isToolResultOnly(content) {
 }
 
 /**
+ * Detect transcript format by peeking at the first entry.
+ * @param {string} filePath
+ * @returns {"claude-code"|"cursor"|"unknown"}
+ */
+export function detectFormat(filePath) {
+  const text = readFileSync(filePath, "utf-8");
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      if (obj.type === "user" || obj.type === "assistant") return "claude-code";
+      if (obj.role === "user" || obj.role === "assistant") return "cursor";
+    } catch { continue; }
+  }
+  return "unknown";
+}
+
+/**
  * Read JSONL and return only user/assistant entries.
+ * Returns { entries, format }.
  */
 function parseJsonl(filePath) {
   const text = readFileSync(filePath, "utf-8");
   const entries = [];
+  let format = "unknown";
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -72,15 +95,18 @@ function parseJsonl(filePath) {
     }
     const topType = obj.type;
     if (topType === "user" || topType === "assistant") {
+      if (format === "unknown") format = "claude-code";
       entries.push(obj);
     } else if (topType === undefined || topType === null) {
-      const role = obj.message?.role;
+      // Cursor format: { role, message: { content } } — normalize to Claude Code shape
+      const role = obj.message?.role ?? obj.role;
       if (role === "user" || role === "assistant") {
-        entries.push(obj);
+        if (format === "unknown") format = "cursor";
+        entries.push({ type: role, message: { role, content: obj.message?.content ?? "" }, timestamp: obj.timestamp ?? null });
       }
     }
   }
-  return entries;
+  return { entries, format };
 }
 
 /**
@@ -205,7 +231,7 @@ function attachToolResults(blocks, entries, resultStart) {
  * @returns {Turn[]}
  */
 export function parseTranscript(filePath) {
-  const entries = parseJsonl(filePath);
+  const { entries, format } = parseJsonl(filePath);
   const turns = [];
   let i = 0;
   let turnIndex = 0;
@@ -297,7 +323,37 @@ export function parseTranscript(filePath) {
   for (let j = 0; j < filtered.length; j++) {
     filtered[j].index = j + 1;
   }
+
+  // Cursor: all assistant blocks except the last per turn are thinking
+  if (format === "cursor") {
+    for (const turn of filtered) {
+      for (let j = 0; j < turn.blocks.length - 1; j++) {
+        if (turn.blocks[j].kind === "text") {
+          turn.blocks[j].kind = "thinking";
+        }
+      }
+    }
+  }
+
   return filtered;
+}
+
+/**
+ * Replace timestamps with synthetic pacing based on content length.
+ * Drives presentation timing, not historical accuracy.
+ * @param {Turn[]} turns
+ */
+export function applyPacedTiming(turns) {
+  let cursor = 0; // ms from epoch
+  for (const turn of turns) {
+    turn.timestamp = new Date(cursor).toISOString();
+    cursor += 500; // brief pause before assistant responds
+    for (const block of turn.blocks) {
+      block.timestamp = new Date(cursor).toISOString();
+      const len = (block.text || "").length;
+      cursor += Math.min(Math.max(len * 30, 1000), 10000);
+    }
+  }
 }
 
 /**

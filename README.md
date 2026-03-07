@@ -8,15 +8,20 @@
 
 > Community tool — not affiliated with or endorsed by Anthropic.
 
-Claude Code sessions are great for development, but hard to share. Screen recordings are bulky and transcripts are hard to navigate.
+AI coding sessions are great for development, but hard to share. Screen recordings are bulky and transcripts are hard to navigate.
 
-**claude-replay** turns Claude Code session logs into interactive, shareable HTML replays. The generated replay is a single self-contained HTML file with no external dependencies — you can email it, host it anywhere, or embed it in documentation.
+**claude-replay** turns Claude Code session logs into interactive, shareable HTML replays. The generated replay is a single self-contained HTML file with no external dependencies — you can email it, host it anywhere, or embed it in documentation. Also supports Cursor agent transcripts.
 
 [![Demo screenshot](https://raw.githubusercontent.com/es617/claude-replay/main/docs/screenshot-dracula.png)](https://es617.github.io/claude-replay/demo.html)
 
 **[Try the live demo](https://es617.github.io/claude-replay/demo.html)**
 
-Claude Code stores full conversation transcripts as JSONL files on disk in `~/.claude/projects/`. These contain every user message, assistant response, tool call, tool result, and thinking block — with timestamps. **claude-replay** converts them into visual replays that look like a Claude Code terminal session, suitable for blog posts, demos, and documentation.
+Claude Code and Cursor store conversation transcripts as JSONL files on disk. **claude-replay** auto-detects the format and converts them into visual replays suitable for blog posts, demos, and documentation.
+
+| Source | Transcript location |
+|---|---|
+| Claude Code | `~/.claude/projects/<project>/` |
+| Cursor | `~/.cursor/projects/<project>/agent-transcripts/<id>/` |
 
 ## Features
 
@@ -53,6 +58,8 @@ npx claude-replay session.jsonl -o replay.html
 
 ## Quick start
 
+### Claude Code
+
 ```bash
 # Find your session transcripts
 ls ~/.claude/projects/*/
@@ -63,6 +70,18 @@ claude-replay ~/.claude/projects/-Users-me-myproject/session-id.jsonl -o replay.
 # Open it
 open replay.html
 ```
+
+### Cursor
+
+```bash
+# Find your agent transcripts
+ls ~/.cursor/projects/*/agent-transcripts/*/
+
+# Generate a replay
+claude-replay ~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl -o replay.html
+```
+
+The format is auto-detected. Cursor transcripts don't include timestamps, so playback uses paced timing by default (see [Timing modes](#timing-modes)).
 
 ## Usage
 
@@ -86,7 +105,8 @@ claude-replay <input.jsonl> [options]
 | `--no-redact` | Disable automatic secret redaction |
 | `--title TEXT` | Page title (default: derived from input path) |
 | `--user-label NAME` | Label for user messages (default: `User`) |
-| `--assistant-label NAME` | Label for assistant messages (default: `Claude`) |
+| `--assistant-label NAME` | Label for assistant messages (default: auto-detected) |
+| `--timing MODE` | Timestamp mode: `auto`, `real`, `paced` (default: `auto`) |
 | `--theme NAME` | Built-in theme (default: `tokyo-night`) |
 | `--theme-file FILE` | Custom theme JSON file (overrides `--theme`) |
 | `--no-minify` | Use unminified template (default: minified if available) |
@@ -110,6 +130,23 @@ claude-replay session.jsonl --theme dracula -o replay.html
 
 # Pipe to stdout for further processing
 claude-replay session.jsonl --turns 1-5 > snippet.html
+```
+
+## Timing modes
+
+The `--timing` flag controls how playback speed is derived:
+
+| Mode | Behavior |
+|---|---|
+| `auto` | Uses real timestamps if available, falls back to `paced` (default) |
+| `real` | Uses original timestamps from the transcript |
+| `paced` | Generates synthetic timing based on content length |
+
+`paced` mode creates presentation-style timing — similar to how slides appear in a presentation or subtitles are timed in a video. Block reveal speed scales with text length. This is the default for Cursor transcripts (which have no timestamps) and can also be used with Claude Code transcripts for smoother demos:
+
+```bash
+# Use paced timing even for Claude Code transcripts
+claude-replay session.jsonl --timing paced -o demo.html
 ```
 
 ## Player controls
@@ -262,17 +299,15 @@ To disable redaction (e.g. for internal/private replays):
 claude-replay session.jsonl --no-redact -o replay.html
 ```
 
-## JSONL transcript format
+## Supported transcript formats
 
-Claude Code transcripts use one JSON object per line with a `type` field:
+### Claude Code
 
-| Type | Content |
-|---|---|
-| `user` | User messages (plain text or tool result arrays) |
-| `assistant` | Assistant responses (text, tool_use, thinking blocks) |
-| `system` | System metadata (skipped) |
-| `progress` | Progress updates (skipped) |
-| `file-history-snapshot` | File state snapshots (skipped) |
+One JSON object per line with a `type` field (`user`, `assistant`, `system`, `progress`, etc.). Includes timestamps, thinking blocks, and tool calls with results.
+
+### Cursor
+
+One JSON object per line with a top-level `role` field. No timestamps. Thinking appears as inline text. The format is auto-detected — no flags needed.
 
 ## Requirements
 

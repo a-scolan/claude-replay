@@ -7,7 +7,7 @@
 import { parseArgs } from "node:util";
 import { basename, dirname } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { parseTranscript, filterTurns } from "../src/parser.mjs";
+import { parseTranscript, filterTurns, detectFormat, applyPacedTiming } from "../src/parser.mjs";
 import { render } from "../src/renderer.mjs";
 import { getTheme, loadThemeFile, listThemes } from "../src/themes.mjs";
 
@@ -25,7 +25,8 @@ const options = {
   "no-redact": { type: "boolean", default: false },
   title: { type: "string" },
   "user-label": { type: "string", default: "User" },
-  "assistant-label": { type: "string", default: "Claude" },
+  "assistant-label": { type: "string" },
+  timing: { type: "string" },
   mark: { type: "string", multiple: true },
   bookmarks: { type: "string" },
   "no-minify": { type: "boolean", default: false },
@@ -61,7 +62,8 @@ Options:
   --theme NAME            Built-in theme (default: tokyo-night)
   --theme-file FILE       Custom theme JSON file (overrides --theme)
   --user-label NAME       Label for user messages (default: User)
-  --assistant-label NAME  Label for assistant messages (default: Claude)
+  --assistant-label NAME  Label for assistant messages (default: auto-detected)
+  --timing MODE           Timestamp mode: auto, real, paced (default: auto)
   --mark "N:Label"        Add a bookmark at turn N (repeatable)
   --bookmarks FILE        JSON file with bookmarks [{turn, label}]
   --no-minify             Use unminified template (default: minified if available)
@@ -129,6 +131,7 @@ if (values.turns) {
 }
 
 // Parse and filter
+const format = detectFormat(inputFile);
 let turns = parseTranscript(inputFile);
 turns = filterTurns(turns, {
   turnRange,
@@ -138,6 +141,17 @@ turns = filterTurns(turns, {
 
 if (turns.length === 0) {
   console.error("Warning: no turns found after filtering.");
+}
+
+// Apply timing mode: auto (default), real, paced
+const timing = values.timing || "auto";
+if (!["auto", "real", "paced"].includes(timing)) {
+  console.error(`Error: unknown --timing mode "${timing}". Use auto, real, or paced.`);
+  process.exit(1);
+}
+const hasTimestamps = turns.some((t) => t.timestamp);
+if (timing === "paced" || (timing === "auto" && !hasTimestamps)) {
+  applyPacedTiming(turns);
 }
 
 const speed = parseFloat(values.speed) || 1.0;
@@ -211,7 +225,7 @@ const html = render(turns, {
   theme,
   redactSecrets: !values["no-redact"],
   userLabel: values["user-label"],
-  assistantLabel: values["assistant-label"],
+  assistantLabel: values["assistant-label"] || (format === "cursor" ? "Assistant" : "Claude"),
   title,
   bookmarks,
   minified: !values["no-minify"],

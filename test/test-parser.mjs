@@ -1,8 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseTranscript, filterTurns } from "../src/parser.mjs";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { parseTranscript, filterTurns, detectFormat, applyPacedTiming } from "../src/parser.mjs";
 
 const FIXTURE = new URL("./fixture.jsonl", import.meta.url).pathname;
+
+/** Write lines to a temp JSONL file and return the path. */
+function writeTempJsonl(lines) {
+  const dir = mkdtempSync(join(tmpdir(), "parser-test-"));
+  const path = join(dir, "test.jsonl");
+  writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+  return path;
+}
 
 describe("parseTranscript", () => {
   // Fixture produces 3 turns (orphan assistant after tool result merges into previous):
@@ -89,5 +100,88 @@ describe("filterTurns", () => {
     const turns = parseTranscript(FIXTURE);
     const filtered = filterTurns(turns);
     assert.equal(filtered.length, 3);
+  });
+});
+
+describe("Cursor format", () => {
+  const CURSOR_FIXTURE = writeTempJsonl([
+    { role: "user", message: { content: [{ type: "text", text: "<user_query>\nscan for ble devices\n</user_query>" }] } },
+    { role: "assistant", message: { content: [{ type: "text", text: "**Planning scan**\n\nI'll scan for nearby BLE devices." }] } },
+    { role: "assistant", message: { content: [{ type: "text", text: "Found 3 devices nearby." }] } },
+    { role: "user", message: { content: [{ type: "text", text: "<user_query>\nconnect to the first one\n</user_query>" }] } },
+    { role: "assistant", message: { content: [{ type: "text", text: "Connected successfully." }] } },
+  ]);
+
+  it("parses Cursor entries into turns", () => {
+    const turns = parseTranscript(CURSOR_FIXTURE);
+    assert.equal(turns.length, 2);
+  });
+
+  it("strips <user_query> tags", () => {
+    const turns = parseTranscript(CURSOR_FIXTURE);
+    assert.equal(turns[0].user_text, "scan for ble devices");
+    assert.equal(turns[1].user_text, "connect to the first one");
+  });
+
+  it("merges consecutive assistant messages into one turn", () => {
+    const turns = parseTranscript(CURSOR_FIXTURE);
+    assert.equal(turns[0].blocks.length, 2);
+    assert.match(turns[0].blocks[0].text, /Planning scan/);
+    assert.match(turns[0].blocks[1].text, /Found 3 devices/);
+  });
+
+  it("reclassifies all but last assistant block as thinking", () => {
+    const turns = parseTranscript(CURSOR_FIXTURE);
+    // Turn 1: 2 blocks — first is thinking, last is text
+    assert.equal(turns[0].blocks[0].kind, "thinking");
+    assert.equal(turns[0].blocks[1].kind, "text");
+    // Turn 2: 1 block — stays as text
+    assert.equal(turns[1].blocks[0].kind, "text");
+  });
+
+  it("has no timestamps before applyPacedTiming", () => {
+    const turns = parseTranscript(CURSOR_FIXTURE);
+    assert.equal(turns[0].timestamp, "");
+  });
+
+  it("detects cursor format", () => {
+    assert.equal(detectFormat(CURSOR_FIXTURE), "cursor");
+    assert.equal(detectFormat(FIXTURE), "claude-code");
+  });
+});
+
+describe("applyPacedTiming", () => {
+  const PACED_FIXTURE = writeTempJsonl([
+    { role: "user", message: { content: [{ type: "text", text: "hello" }] } },
+    { role: "assistant", message: { content: [{ type: "text", text: "short reply" }] } },
+    { role: "user", message: { content: [{ type: "text", text: "more" }] } },
+    { role: "assistant", message: { content: [{ type: "text", text: "a longer reply with more content to test proportional timing" }] } },
+  ]);
+
+  it("generates ordered synthetic timestamps", () => {
+    const turns = parseTranscript(PACED_FIXTURE);
+    applyPacedTiming(turns);
+    assert.ok(turns[0].timestamp, "turn should have a timestamp");
+    assert.ok(turns[0].blocks[0].timestamp, "block should have a timestamp");
+    const t0 = new Date(turns[0].timestamp).getTime();
+    const t1 = new Date(turns[1].timestamp).getTime();
+    assert.ok(t1 > t0, "turn 2 timestamp should be after turn 1");
+  });
+
+  it("scales duration with content length", () => {
+    const turns = parseTranscript(PACED_FIXTURE);
+    applyPacedTiming(turns);
+    const gap0 = new Date(turns[0].blocks[0].timestamp).getTime() - new Date(turns[0].timestamp).getTime();
+    const gap1 = new Date(turns[1].blocks[0].timestamp).getTime() - new Date(turns[1].timestamp).getTime();
+    // Both gaps should be the same (500ms user→assistant pause)
+    assert.equal(gap0, gap1);
+  });
+
+  it("works on Claude Code transcripts too", () => {
+    const turns = parseTranscript(FIXTURE);
+    const origTs = turns[0].timestamp;
+    applyPacedTiming(turns);
+    // Should overwrite real timestamps
+    assert.notEqual(turns[0].timestamp, origTs);
   });
 });
