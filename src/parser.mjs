@@ -23,6 +23,8 @@ function cleanSystemTags(text) {
   text = text.replace(/<user_query>([\s\S]*?)<\/user_query>\s*/g, (_, inner) => inner.trim());
   // Remove <system-reminder> blocks
   text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "");
+  // Remove IDE context tags (VS Code extension)
+  text = text.replace(/<ide_opened_file>[\s\S]*?<\/ide_opened_file>\s*/g, "");
   // Remove internal caveat boilerplate (not useful to viewers)
   text = text.replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/g, "");
   // Extract slash command name, keep as visible text
