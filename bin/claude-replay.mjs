@@ -10,6 +10,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseTranscript, filterTurns, detectFormat, applyPacedTiming } from "../src/parser.mjs";
 import { render } from "../src/renderer.mjs";
 import { getTheme, loadThemeFile, listThemes } from "../src/themes.mjs";
+import { extractData } from "../src/extract.mjs";
 
 const options = {
   output: { type: "string", short: "o" },
@@ -46,8 +47,12 @@ const { values, positionals } = parsed;
 
 if (values.help) {
   console.log(`Usage: claude-replay <input.jsonl> [options]
+       claude-replay extract <replay.html> [-o output.json]
 
 Convert Claude Code session transcripts into embeddable HTML replays.
+
+Commands:
+  extract               Extract embedded turn data from a generated replay HTML
 
 Options:
   -o, --output FILE       Output HTML file (default: stdout)
@@ -76,6 +81,35 @@ Options:
 if (values["list-themes"]) {
   for (const name of listThemes()) {
     console.log(name);
+  }
+  process.exit(0);
+}
+
+// --- Extract subcommand ---
+if (positionals[0] === "extract") {
+  const htmlFile = positionals[1];
+  if (!htmlFile) {
+    console.error("Error: input file is required. Usage: claude-replay extract <replay.html> [-o output.json]");
+    process.exit(1);
+  }
+  if (!existsSync(htmlFile)) {
+    console.error(`Error: file not found: ${htmlFile}`);
+    process.exit(1);
+  }
+  const html = readFileSync(htmlFile, "utf-8");
+  let data;
+  try {
+    data = extractData(html);
+  } catch (e) {
+    console.error(`Error: ${e.message}`);
+    process.exit(1);
+  }
+  const json = JSON.stringify(data, null, 2);
+  if (values.output) {
+    writeFileSync(values.output, json);
+    console.error(`Wrote ${values.output} (${data.turns.length} turns, ${data.bookmarks.length} bookmarks)`);
+  } else {
+    process.stdout.write(json + "\n");
   }
   process.exit(0);
 }

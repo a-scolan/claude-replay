@@ -87,7 +87,20 @@ The format is auto-detected. Cursor transcripts don't include timestamps, so pla
 
 ```
 claude-replay <input.jsonl> [options]
+claude-replay extract <replay.html> [-o output.json]
 ```
+
+### Commands
+
+#### `extract`
+
+Extract the embedded turn data from a previously generated replay HTML file. Useful when the original JSONL is no longer available and you want to regenerate with different options.
+
+```bash
+claude-replay extract replay.html -o turns.json  # save to file
+```
+
+Note: the extracted data is the *parsed* representation (system tags stripped, secrets redacted, turns structured), not a verbatim copy of the original JSONL transcript.
 
 ### Options
 
@@ -317,6 +330,8 @@ One JSON object per line with a top-level `role` field. No timestamps. Thinking 
 ## Privacy
 
 Replay files embed the **full session transcript**, including source code, file paths, tool inputs/outputs, and thinking traces. Review the generated HTML before sharing publicly — it may contain proprietary code, internal paths, or other sensitive information. Secret redaction (enabled by default) catches common credential patterns but does not filter code or file contents.
+
+The transcript data is stored as a compressed blob inside the HTML file. Editing the player JavaScript to hide or filter turns only affects rendering — the original data remains in the blob and can be recovered. To exclude sensitive content, use the CLI flags at generation time (e.g. `--turns` to select specific turns). All filtering and redaction is applied before the data is compressed into the output file.
 
 ## License
 
