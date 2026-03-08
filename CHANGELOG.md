@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0
+
+### Player
+- Diff view for Edit tool calls: removed lines in red, added lines in green (unified diff style)
+- Code block view for Write tool calls instead of raw JSON
+- Smarter tool header previews: file path for Edit/Write/Read, pattern for Grep/Glob, command for Bash
+- Red indicator dot on failed tool calls (individual and grouped)
+- Red result text for error messages
+- `<tool_use_error>` XML tags stripped from error results for clean display
+
+### Parser
+- Cursor agent transcript support (auto-detected, paced timing)
+- Pass `is_error` flag from tool results through to renderer
+- Strip `<tool_use_error>` wrapper tags from tool result text
+- Strip `<ide_opened_file>` tags from VS Code extension transcripts
+
+### Other
+- Raise tool grouping threshold from 3 to 5 consecutive calls for better per-tool visibility
+- Add Privacy section to README
+- Add e2e tests for diff view, Write view, error indicators, and tag stripping (32 total)
+
 ## 0.1.2
 
 - Fix: expanding a block while paused then stepping forward now reveals the next block instead of jumping to the next turn
