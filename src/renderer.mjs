@@ -20,9 +20,15 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-/** Escape a JSON string for safe embedding inside a <script> tag. */
+/** Escape a JSON string for safe embedding inside a double-quoted JS string literal in a <script> tag. */
 function escapeJsonForScript(json) {
-  return json.replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
+  return json
+    .replace(/\\/g, "\\\\")        // backslashes first
+    .replace(/"/g, '\\"')           // double quotes (JS string delimiter)
+    .replace(/\n/g, "\\n")          // newlines
+    .replace(/\r/g, "\\r")          // carriage returns
+    .replace(/<\//g, "<\\/")        // </script> breakout
+    .replace(/<!--/g, "<\\!--");    // HTML comment breakout
 }
 
 /** Compress a JSON string to base64-encoded deflate for embedding. */

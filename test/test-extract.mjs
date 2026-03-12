@@ -75,6 +75,54 @@ describe("extract", () => {
     assert.equal(html1, html2);
   });
 
+  it("roundtrip: uncompressed extract then re-render produces identical HTML", () => {
+    const opts = {
+      minified: false,
+      compress: false,
+      redactSecrets: false,
+      bookmarks: SAMPLE_BOOKMARKS,
+      title: "Roundtrip Uncompressed",
+    };
+    const html1 = render(SAMPLE_TURNS, opts);
+    const data = extractData(html1);
+    const html2 = render(data.turns, { ...opts, bookmarks: data.bookmarks });
+    assert.equal(html1, html2);
+  });
+
+  it("roundtrip handles quotes, backslashes, and newlines in uncompressed mode", () => {
+    const tricky = [
+      {
+        index: 1,
+        user_text: 'He said "hello\\world"\nand then\r\nleft',
+        blocks: [
+          {
+            kind: "text",
+            text: 'Path is C:\\Users\\test and <script></script>',
+            tool_call: null,
+          },
+          {
+            kind: "tool_use",
+            text: "",
+            tool_call: {
+              name: "Read",
+              input: { file_path: '/tmp/"quoted"' },
+              result: '<!-- comment -->\nline2</script>',
+              is_error: false,
+            },
+          },
+        ],
+        timestamp: "2025-06-01T10:00:00Z",
+      },
+    ];
+    const html = render(tricky, { minified: false, compress: false, redactSecrets: false });
+    const data = extractData(html);
+    assert.equal(data.turns.length, 1);
+    assert.equal(data.turns[0].user_text, tricky[0].user_text);
+    assert.equal(data.turns[0].blocks[0].text, tricky[0].blocks[0].text);
+    assert.equal(data.turns[0].blocks[1].tool_call.result, tricky[0].blocks[1].tool_call.result);
+    assert.equal(data.turns[0].blocks[1].tool_call.input.file_path, '/tmp/"quoted"');
+  });
+
   it("throws on invalid HTML", () => {
     assert.throws(() => extractData("<html><body>no data</body></html>"), {
       message: /Could not find data blobs/,

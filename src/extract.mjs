@@ -6,13 +6,31 @@ import { inflateSync } from "node:zlib";
 
 /**
  * Decode a data blob — either raw JSON or base64-encoded deflate.
+ * For raw JSON (--no-compress mode), undoes the JS string literal escaping
+ * applied by escapeJsonForScript before parsing.
  * @param {string} raw
  * @returns {unknown}
  */
 function decodeBlob(raw) {
-  if (raw.startsWith("[") || raw.startsWith("{")) {
-    // Raw JSON (--no-compress mode) — undo script-safe escaping
-    return JSON.parse(raw.replace(/<\\\//g, "</").replace(/<\\!--/g, "<!--"));
+  if (raw.startsWith("[") || raw.startsWith("{") || raw.startsWith("\\")) {
+    // Raw JSON (--no-compress mode) — undo JS string literal escaping.
+    // Process char-by-char to correctly handle \\ vs \" vs \n etc.
+    let json = "";
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] === "\\" && i + 1 < raw.length) {
+        const next = raw[i + 1];
+        if (next === "\\") { json += "\\"; i++; }
+        else if (next === '"') { json += '"'; i++; }
+        else if (next === "n") { json += "\n"; i++; }
+        else if (next === "r") { json += "\r"; i++; }
+        else { json += raw[i]; } // pass through unknown escapes
+      } else {
+        json += raw[i];
+      }
+    }
+    // Undo HTML-in-script escapes (these don't use backslash)
+    json = json.replace(/<\\\//g, "</").replace(/<\\!--/g, "<!--");
+    return JSON.parse(json);
   }
   // Compressed: base64-encoded deflate
   return JSON.parse(inflateSync(Buffer.from(raw, "base64")).toString());
@@ -22,6 +40,7 @@ function decodeBlob(raw) {
  * Find all data blobs passed to the async decode function.
  * Works with both minified (e.g. `f=await Tt("...")`) and
  * unminified (`const TURNS = await decodeData("...")`) output.
+ * Handles escaped quotes within the data blob.
  * Returns blobs in source order: [turnsBlob, bookmarksBlob].
  * @param {string} html
  * @returns {string[]}
@@ -32,9 +51,18 @@ function findBlobs(html) {
   let m;
   while ((m = pattern.exec(html)) !== null) {
     const start = m.index + m[0].length;
-    const end = html.indexOf('");', start);
-    if (end !== -1 && end > start) {
-      blobs.push(html.slice(start, end));
+    // Find the closing unescaped "); — skip escaped quotes \"
+    let i = start;
+    while (i < html.length) {
+      if (html[i] === "\\") {
+        i += 2; // skip escaped character
+        continue;
+      }
+      if (html[i] === '"' && html.startsWith(");", i + 1)) {
+        blobs.push(html.slice(start, i));
+        break;
+      }
+      i++;
     }
   }
   return blobs;

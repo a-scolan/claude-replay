@@ -40,8 +40,9 @@ describe("render", () => {
 
   it("embeds raw JSON with compress=false", () => {
     const html = render(SAMPLE_TURNS, { minified: false, compress: false });
-    assert.match(html, /"user_text":"Hello"/);
-    assert.match(html, /"name":"Read"/);
+    // Quotes are escaped for safe embedding in JS string literals
+    assert.match(html, /\\"user_text\\":\\"Hello\\"/);
+    assert.match(html, /\\"name\\":\\"Read\\"/);
   });
 
   it("injects theme CSS", () => {

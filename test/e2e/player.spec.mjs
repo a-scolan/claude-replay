@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { getFileUrl, getChapterFileUrl, waitForReady } from "./setup.mjs";
+import { getFileUrl, getUncompressedFileUrl, getChapterFileUrl, waitForReady } from "./setup.mjs";
 
 // Helpers
 const blockCount = (page, turn, hidden = false) =>
@@ -453,4 +453,28 @@ test("successful tool does not show red indicator", async ({ page }) => {
   // Indicator should NOT have error class
   await expect(editTool.locator(".tool-indicator")).toBeVisible();
   await expect(editTool.locator(".tool-indicator.tool-error")).toHaveCount(0);
+});
+
+// ─── Uncompressed mode (--no-compress) ──────────────────────
+
+test("uncompressed: player loads and initializes", async ({ page }) => {
+  await page.goto(getUncompressedFileUrl());
+  await waitForReady(page);
+  expect(await isSplashVisible(page)).toBe(true);
+});
+
+test("uncompressed: stepping reveals blocks", async ({ page }) => {
+  await page.goto(getUncompressedFileUrl());
+  await waitForReady(page);
+  await pressKey(page, "ArrowRight"); // splash → turn 1
+  expect(await isSplashVisible(page)).toBe(false);
+  await pressKey(page, "ArrowRight"); // reveal block 1
+  expect(await visibleBlockCount(page, 1)).toBe(1);
+});
+
+test("uncompressed: deep link to turn works", async ({ page }) => {
+  await page.goto(getUncompressedFileUrl("turn=2"));
+  await waitForReady(page);
+  expect(await isSplashVisible(page)).toBe(false);
+  await expect(page.locator('.turn[data-index="2"]')).toBeVisible();
 });
