@@ -78,15 +78,12 @@ test("step forward reveals blocks one by one", async ({ page }) => {
 
 test("step forward advances to next turn after all blocks revealed", async ({ page }) => {
   await goto(page, "turn=1");
-  // All blocks in turn 1 should be revealed (deep link)
-  const total = await blockCount(page, 1);
-  expect(await visibleBlockCount(page, 1)).toBe(total);
+  // Deep link hides active turn blocks — step forward reveals first block
+  expect(await visibleBlockCount(page, 1)).toBe(0);
 
-  // Step forward should advance to turn 2
+  // Step forward should reveal first block in turn 1
   await pressKey(page, "ArrowRight");
-  await expect(page.locator('.turn[data-index="2"]')).toBeVisible();
-  // Turn 2 blocks should all be hidden (thinking + tool-group + text = 3 wrappers)
-  expect(await blockCount(page, 2, true)).toBe(3);
+  expect(await visibleBlockCount(page, 1)).toBe(1);
 });
 
 // ─── Step back ──────────────────────────────────────────────
@@ -361,7 +358,7 @@ test("chapter click stops playback", async ({ page }) => {
 // ─── Diff view for Edit/Write ──────────────────────────────
 
 test("Edit tool renders diff view with red/green lines", async ({ page }) => {
-  await goto(page, "turn=3");
+  await goto(page, "turn=4"); // go past turn 3 so its blocks are revealed
   // Expand the Edit tool block
   const editTool = page.locator('.turn[data-index="3"] .tool-block', { hasText: "Edit" }).first();
   await editTool.locator(".tool-header").click();
@@ -382,7 +379,7 @@ test("Edit tool renders diff view with red/green lines", async ({ page }) => {
 });
 
 test("Write tool renders code block", async ({ page }) => {
-  await goto(page, "turn=3");
+  await goto(page, "turn=4"); // go past turn 3 so its blocks are revealed
   // Expand the Write tool block
   const writeTool = page.locator('.turn[data-index="3"] .tool-block', { hasText: "Write" }).first();
   await writeTool.locator(".tool-header").click();
@@ -399,7 +396,7 @@ test("Write tool renders code block", async ({ page }) => {
 });
 
 test("Edit/Write tool headers show file path as preview", async ({ page }) => {
-  await goto(page, "turn=3");
+  await goto(page, "turn=4"); // go past turn 3 so its blocks are revealed
   const editPreview = page.locator('.turn[data-index="3"] .tool-block', { hasText: "Edit" }).first().locator(".tool-args-preview");
   const writePreview = page.locator('.turn[data-index="3"] .tool-block', { hasText: "Write" }).first().locator(".tool-args-preview");
 
@@ -408,7 +405,7 @@ test("Edit/Write tool headers show file path as preview", async ({ page }) => {
 });
 
 test("other tools still render generic input/result", async ({ page }) => {
-  await goto(page, "turn=1");
+  await goto(page, "turn=2"); // go past turn 1 so its blocks are revealed
   // Expand the first tool block (ble_scan_start)
   const tool = page.locator('.turn[data-index="1"] .tool-block').first();
   await tool.locator(".tool-header").click();
@@ -422,7 +419,7 @@ test("other tools still render generic input/result", async ({ page }) => {
 // ─── Error state ───────────────────────────────────────────
 
 test("failed tool shows red indicator dot", async ({ page }) => {
-  await goto(page, "turn=4");
+  await goto(page, "turn=5"); // go past turn 4 so its blocks are revealed
   const editTool = page.locator('.turn[data-index="4"] .tool-block', { hasText: "Edit" }).first();
 
   // Indicator should have error class
@@ -430,7 +427,7 @@ test("failed tool shows red indicator dot", async ({ page }) => {
 });
 
 test("failed Edit tool strips tool_use_error tags and shows red result", async ({ page }) => {
-  await goto(page, "turn=4");
+  await goto(page, "turn=5"); // go past turn 4 so its blocks are revealed
   const editTool = page.locator('.turn[data-index="4"] .tool-block', { hasText: "Edit" }).first();
   await editTool.locator(".tool-header").click();
   await expect(editTool.locator(".tool-body")).toBeVisible();
@@ -447,7 +444,7 @@ test("failed Edit tool strips tool_use_error tags and shows red result", async (
 });
 
 test("successful tool does not show red indicator", async ({ page }) => {
-  await goto(page, "turn=3");
+  await goto(page, "turn=4"); // go past turn 3 so its blocks are revealed
   const editTool = page.locator('.turn[data-index="3"] .tool-block', { hasText: "Edit" }).first();
 
   // Indicator should NOT have error class
