@@ -31,9 +31,12 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let settled = false;
     req.on("data", (c) => {
+      if (settled) return;
       size += c.length;
       if (size > MAX_BODY_SIZE) {
+        settled = true;
         req.destroy();
         reject(new Error("Request body too large"));
         return;
@@ -41,13 +44,19 @@ function readBody(req) {
       chunks.push(c);
     });
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString()));
       } catch {
         reject(new Error("Invalid JSON body"));
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -161,9 +170,21 @@ function buildRenderOpts(options, session, overrides = {}) {
 // Filesystem browsing
 // ---------------------------------------------------------------------------
 
+/** Ensure a path is under $HOME to prevent filesystem traversal. */
+function assertUnderHome(targetPath) {
+  const resolved = resolve(targetPath);
+  const home = homedir();
+  if (!resolved.startsWith(home + "/") && resolved !== home) {
+    const err = new Error("Access denied: path must be under your home directory");
+    err.code = "EACCES";
+    throw err;
+  }
+  return resolved;
+}
+
 /** Browse a directory — returns dirs + .jsonl files. */
 function browseDirectory(dirPath) {
-  const resolved = resolve(dirPath);
+  const resolved = assertUnderHome(dirPath);
   const entries = readdirSync(resolved);
   const dirs = [];
   const files = [];
@@ -296,6 +317,21 @@ function discoverSessions() {
 // ---------------------------------------------------------------------------
 
 async function handleApi(req, res, pathname) {
+  // CSRF protection: reject cross-origin requests to the API.
+  // The editor is served from 127.0.0.1, so legitimate requests have a
+  // matching Origin or no Origin at all (same-origin, curl, etc.).
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      const originHost = new URL(origin).hostname;
+      if (originHost !== "127.0.0.1" && originHost !== "localhost") {
+        return error(res, "Cross-origin requests are not allowed", 403);
+      }
+    } catch {
+      return error(res, "Invalid Origin header", 403);
+    }
+  }
+
   // GET /api/sessions — list discovered sessions + home directory
   if (pathname === "/api/sessions" && req.method === "GET") {
     return json(res, { groups: discoverSessions(), homedir: homedir() });
@@ -325,6 +361,7 @@ async function handleApi(req, res, pathname) {
     const filePath = body.path;
     if (!filePath) return error(res, "Missing 'path' field");
     try {
+      assertUnderHome(filePath);
       // Reuse existing session for the same file
       for (const [existingId, s] of sessions) {
         if (s.sourcePath === filePath) {

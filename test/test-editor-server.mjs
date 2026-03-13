@@ -4,7 +4,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, "e2e", "fixture.jsonl");
@@ -90,7 +90,7 @@ describe("editor-server API", () => {
     const res = await fetch(`${baseUrl}/api/load`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "/tmp/nonexistent-file-abc123.jsonl" }),
+      body: JSON.stringify({ path: resolve(homedir(), "nonexistent-file-abc123.jsonl") }),
     });
     assert.equal(res.status, 500);
     const data = await res.json();
@@ -200,10 +200,48 @@ describe("editor-server API", () => {
     const res = await fetch(`${baseUrl}/api/browse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "/tmp/nonexistent-dir-xyz789" }),
+      body: JSON.stringify({ path: join(homedir(), "nonexistent-dir-xyz789") }),
     });
     assert.equal(res.status, 400);
     const data = await res.json();
     assert.ok(data.error);
+  });
+
+  it("POST /api/browse rejects paths outside home directory", async () => {
+    const res = await fetch(`${baseUrl}/api/browse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "/etc" }),
+    });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.match(data.error, /Permission denied/);
+  });
+
+  it("POST /api/load rejects paths outside home directory", async () => {
+    const res = await fetch(`${baseUrl}/api/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "/etc/passwd" }),
+    });
+    assert.equal(res.status, 500);
+    const data = await res.json();
+    assert.match(data.error, /home directory/);
+  });
+
+  it("rejects cross-origin API requests", async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      headers: { "Origin": "https://evil.example.com" },
+    });
+    assert.equal(res.status, 403);
+    const data = await res.json();
+    assert.match(data.error, /Cross-origin/);
+  });
+
+  it("allows same-origin API requests", async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      headers: { "Origin": baseUrl },
+    });
+    assert.equal(res.status, 200);
   });
 });
