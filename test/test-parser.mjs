@@ -1,19 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { parseTranscript, filterTurns, detectFormat, applyPacedTiming } from "../src/parser.mjs";
 
 const FIXTURE = new URL("./fixture.jsonl", import.meta.url).pathname;
-
-/** Write lines to a temp JSONL file and return the path. */
-function writeTempJsonl(lines) {
-  const dir = mkdtempSync(join(tmpdir(), "parser-test-"));
-  const path = join(dir, "test.jsonl");
-  writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
-  return path;
-}
+const CURSOR_FIXTURE = new URL("./fixture-cursor.jsonl", import.meta.url).pathname;
+const CODEX_FIXTURE = new URL("./fixture-codex.jsonl", import.meta.url).pathname;
+const PACED_FIXTURE = new URL("./fixture-paced.jsonl", import.meta.url).pathname;
 
 describe("parseTranscript", () => {
   // Fixture produces 3 turns (orphan assistant after tool result merges into previous):
@@ -119,14 +111,6 @@ describe("filterTurns", () => {
 });
 
 describe("Cursor format", () => {
-  const CURSOR_FIXTURE = writeTempJsonl([
-    { role: "user", message: { content: [{ type: "text", text: "<user_query>\nscan for ble devices\n</user_query>" }] } },
-    { role: "assistant", message: { content: [{ type: "text", text: "**Planning scan**\n\nI'll scan for nearby BLE devices." }] } },
-    { role: "assistant", message: { content: [{ type: "text", text: "Found 3 devices nearby." }] } },
-    { role: "user", message: { content: [{ type: "text", text: "<user_query>\nconnect to the first one\n</user_query>" }] } },
-    { role: "assistant", message: { content: [{ type: "text", text: "Connected successfully." }] } },
-  ]);
-
   it("parses Cursor entries into turns", () => {
     const turns = parseTranscript(CURSOR_FIXTURE);
     assert.equal(turns.length, 2);
@@ -165,14 +149,84 @@ describe("Cursor format", () => {
   });
 });
 
-describe("applyPacedTiming", () => {
-  const PACED_FIXTURE = writeTempJsonl([
-    { role: "user", message: { content: [{ type: "text", text: "hello" }] } },
-    { role: "assistant", message: { content: [{ type: "text", text: "short reply" }] } },
-    { role: "user", message: { content: [{ type: "text", text: "more" }] } },
-    { role: "assistant", message: { content: [{ type: "text", text: "a longer reply with more content to test proportional timing" }] } },
-  ]);
+describe("Codex format", () => {
+  it("detects codex format", () => {
+    assert.equal(detectFormat(CODEX_FIXTURE), "codex");
+  });
 
+  it("parses turns from task boundaries", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    assert.equal(turns.length, 3);
+  });
+
+  it("extracts user text after 'My request for Codex:' marker", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    assert.equal(turns[0].user_text, "list files here");
+    assert.equal(turns[1].user_text, "create hello.txt");
+    assert.equal(turns[2].user_text, "fix the typo");
+  });
+
+  it("maps commentary to thinking and final_answer to text", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const thinking = turns[0].blocks.filter((b) => b.kind === "thinking");
+    const text = turns[0].blocks.filter((b) => b.kind === "text");
+    assert.equal(thinking.length, 1);
+    assert.match(thinking[0].text, /Checking the directory/);
+    assert.equal(text.length, 1);
+    assert.equal(text[0].text, "Found 2 files.");
+  });
+
+  it("skips encrypted reasoning blocks", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const reasoning = turns[0].blocks.filter((b) => b.text?.includes("gAAAA"));
+    assert.equal(reasoning.length, 0);
+  });
+
+  it("maps exec_command to Bash with normalized input", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const bash = turns[0].blocks.find((b) => b.kind === "tool_use");
+    assert.equal(bash.tool_call.name, "Bash");
+    assert.equal(bash.tool_call.input.command, "cd /tmp/test && ls");
+  });
+
+  it("strips Codex metadata from tool output", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const bash = turns[0].blocks.find((b) => b.kind === "tool_use");
+    assert.equal(bash.tool_call.result, "file1.txt\nfile2.txt");
+    assert.ok(!bash.tool_call.result.includes("Chunk ID"));
+  });
+
+  it("maps apply_patch Add File to Write with file_path and content", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const write = turns[1].blocks.find((b) => b.kind === "tool_use");
+    assert.equal(write.tool_call.name, "Write");
+    assert.equal(write.tool_call.input.file_path, "/tmp/hello.txt");
+    assert.equal(write.tool_call.input.content, "hello world");
+  });
+
+  it("maps apply_patch Update File to Edit with old_string and new_string", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const edit = turns[2].blocks.find((b) => b.kind === "tool_use");
+    assert.equal(edit.tool_call.name, "Edit");
+    assert.equal(edit.tool_call.input.file_path, "/tmp/hello.txt");
+    assert.equal(edit.tool_call.input.old_string, "hello world");
+    assert.equal(edit.tool_call.input.new_string, "hello, world!");
+  });
+
+  it("attaches tool results with timestamps", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    const edit = turns[2].blocks.find((b) => b.kind === "tool_use");
+    assert.equal(edit.tool_call.result, "Success.");
+    assert.ok(edit.tool_call.resultTimestamp);
+  });
+
+  it("preserves timestamps on turns", () => {
+    const turns = parseTranscript(CODEX_FIXTURE);
+    assert.ok(turns[0].timestamp.startsWith("2026-03-13"));
+  });
+});
+
+describe("applyPacedTiming", () => {
   it("generates ordered synthetic timestamps", () => {
     const turns = parseTranscript(PACED_FIXTURE);
     applyPacedTiming(turns);

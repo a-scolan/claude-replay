@@ -1,5 +1,5 @@
 /**
- * Parse Claude Code and Cursor JSONL transcripts into structured turns.
+ * Parse Claude Code, Cursor, and Codex CLI JSONL transcripts into structured turns.
  */
 
 import { readFileSync } from "node:fs";
@@ -62,7 +62,7 @@ function isToolResultOnly(content) {
 /**
  * Detect transcript format by peeking at the first entry.
  * @param {string} filePath
- * @returns {"claude-code"|"cursor"|"unknown"}
+ * @returns {"claude-code"|"cursor"|"codex"|"unknown"}
  */
 export function detectFormat(filePath) {
   const text = readFileSync(filePath, "utf-8");
@@ -71,6 +71,7 @@ export function detectFormat(filePath) {
     if (!trimmed) continue;
     try {
       const obj = JSON.parse(trimmed);
+      if (obj.type === "session_meta") return "codex";
       if (obj.type === "user" || obj.type === "assistant") return "claude-code";
       if (obj.role === "user" || obj.role === "assistant") return "cursor";
     } catch { continue; }
@@ -232,12 +233,300 @@ function attachToolResults(blocks, entries, resultStart) {
 }
 
 /**
+ * Parse a Codex apply_patch string into Edit/Write-compatible input.
+ * Patch format:
+ *   *** Begin Patch
+ *   *** Add File: /path        → Write (new file)
+ *   *** Update File: /path     → Edit (modify)
+ *   +added line / -removed line / @@context@@
+ *   *** End Patch
+ */
+function parseCodexPatch(patchStr) {
+  const lines = patchStr.split("\n");
+  let filePath = "";
+  let isNew = false;
+  const oldLines = [];
+  const newLines = [];
+
+  for (const line of lines) {
+    if (line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch")) continue;
+    if (line.startsWith("*** Add File:")) {
+      filePath = line.replace("*** Add File:", "").trim();
+      isNew = true;
+      continue;
+    }
+    if (line.startsWith("*** Update File:")) {
+      filePath = line.replace("*** Update File:", "").trim();
+      isNew = false;
+      continue;
+    }
+    if (line.startsWith("@@")) continue; // context marker
+    if (line.startsWith("+")) {
+      newLines.push(line.slice(1));
+    } else if (line.startsWith("-")) {
+      oldLines.push(line.slice(1));
+    } else if (line.trim()) {
+      // Context line (unchanged) — appears in both old and new
+      oldLines.push(line);
+      newLines.push(line);
+    }
+  }
+
+  if (isNew) {
+    return { file_path: filePath, content: newLines.join("\n"), isNew: true };
+  }
+  return {
+    file_path: filePath,
+    old_string: oldLines.join("\n"),
+    new_string: newLines.join("\n"),
+    isNew: false,
+  };
+}
+
+/**
+ * Extract the actual user request from Codex user messages.
+ * Codex prepends IDE context, environment, permissions, and skills;
+ * the real user text follows "## My request for Codex:".
+ */
+function extractCodexUserText(text) {
+  const marker = "## My request for Codex:";
+  const idx = text.indexOf(marker);
+  if (idx !== -1) return text.slice(idx + marker.length).trim();
+  // Also try "## My request for Codex" without colon
+  const marker2 = "## My request for Codex";
+  const idx2 = text.indexOf(marker2);
+  if (idx2 !== -1) {
+    const after = text.slice(idx2 + marker2.length);
+    // Skip optional colon and newline
+    return after.replace(/^:?\s*/, "").trim();
+  }
+  return text.trim();
+}
+
+/**
+ * Parse a Codex CLI JSONL transcript into Turn[].
+ * Codex uses an event-based format with task_started/task_complete boundaries.
+ */
+function parseCodexTranscript(filePath) {
+  const text = readFileSync(filePath, "utf-8");
+  const events = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try { events.push(JSON.parse(trimmed)); } catch { continue; }
+  }
+
+  const turns = [];
+  let turnIndex = 0;
+  let currentUserText = "";
+  let currentTimestamp = "";
+  let currentBlocks = [];
+  // Map call_id → tool_call ref for attaching results
+  let pendingCalls = new Map();
+  let inTurn = false;
+
+  for (const evt of events) {
+    const type = evt.type;
+    const payload = evt.payload ?? {};
+    const ts = evt.timestamp ?? null;
+
+    if (type === "event_msg" && payload.type === "task_started") {
+      // Start a new turn
+      inTurn = true;
+      currentUserText = "";
+      currentTimestamp = ts ?? "";
+      currentBlocks = [];
+      pendingCalls = new Map();
+      continue;
+    }
+
+    if (type === "event_msg" && payload.type === "task_complete") {
+      // Finalize the turn
+      if (inTurn) {
+        turnIndex++;
+        turns.push({
+          index: turnIndex,
+          user_text: currentUserText,
+          blocks: currentBlocks,
+          timestamp: currentTimestamp,
+        });
+      }
+      inTurn = false;
+      continue;
+    }
+
+    if (!inTurn) continue;
+
+    if (type === "event_msg" && payload.type === "user_message") {
+      // The user_message event has the actual user text
+      const msg = payload.message ?? "";
+      currentUserText = extractCodexUserText(msg);
+      if (ts) currentTimestamp = ts;
+      continue;
+    }
+
+    if (type === "response_item") {
+      const ptype = payload.type;
+      const role = payload.role ?? "";
+      const phase = payload.phase ?? "";
+
+      // User message as response_item — use as fallback if event_msg didn't fire
+      if (ptype === "message" && role === "user") {
+        const content = payload.content ?? [];
+        if (Array.isArray(content)) {
+          const textParts = content.filter((b) => b.type === "input_text").map((b) => b.text ?? "");
+          const raw = textParts.join("\n");
+          const extracted = extractCodexUserText(raw);
+          if (extracted && !currentUserText) currentUserText = extracted;
+        }
+        continue;
+      }
+
+      // Skip developer messages (system prompts, permissions, etc.)
+      if (ptype === "message" && role === "developer") continue;
+
+      // Assistant text: commentary = thinking, final_answer = text
+      if (ptype === "message" && role === "assistant") {
+        const content = payload.content ?? [];
+        const textParts = [];
+        if (Array.isArray(content)) {
+          for (const b of content) {
+            if (b.type === "output_text") textParts.push(b.text ?? "");
+          }
+        }
+        const blockText = textParts.join("\n").trim();
+        if (!blockText) continue;
+        const kind = phase === "commentary" ? "thinking" : "text";
+        currentBlocks.push({ kind, text: blockText, tool_call: null, timestamp: ts });
+        continue;
+      }
+
+      // Encrypted reasoning — skip (OpenAI encrypts chain-of-thought)
+      if (ptype === "reasoning") continue;
+
+      // exec_command tool call
+      if (ptype === "function_call") {
+        const callId = payload.call_id ?? "";
+        const name = payload.name ?? "unknown";
+        let input = {};
+        try { input = JSON.parse(payload.arguments ?? "{}"); } catch { input = { raw: payload.arguments }; }
+        // Normalize exec_command → Bash: map cmd → command
+        if (name === "exec_command" && input.cmd) {
+          const cmd = input.workdir ? `cd ${input.workdir} && ${input.cmd}` : input.cmd;
+          input = { command: cmd };
+        }
+        const toolCall = {
+          tool_use_id: callId,
+          name: name === "exec_command" ? "Bash" : name,
+          input,
+          result: null,
+          resultTimestamp: null,
+          is_error: false,
+        };
+        currentBlocks.push({ kind: "tool_use", text: "", tool_call: toolCall, timestamp: ts });
+        pendingCalls.set(callId, toolCall);
+        continue;
+      }
+
+      // exec_command result
+      if (ptype === "function_call_output") {
+        const callId = payload.call_id ?? "";
+        const output = payload.output ?? "";
+        // Strip Codex metadata prefix (Chunk ID, Wall time, Process exited)
+        const cleaned = output.replace(/^Chunk ID:.*\n?/m, "")
+          .replace(/^Wall time:.*\n?/m, "")
+          .replace(/^Process exited with code \d+\n?/m, "")
+          .replace(/^Original token count:.*\n?/m, "")
+          .replace(/^Output:\n?/m, "")
+          .trim();
+        if (pendingCalls.has(callId)) {
+          const tc = pendingCalls.get(callId);
+          tc.result = cleaned;
+          tc.resultTimestamp = ts;
+          tc.is_error = output.includes("Process exited with code") && !output.includes("code 0");
+          pendingCalls.delete(callId);
+        }
+        continue;
+      }
+
+      // apply_patch / other custom tool calls
+      if (ptype === "custom_tool_call") {
+        const callId = payload.call_id ?? "";
+        const name = payload.name ?? "unknown";
+        let mappedName = name;
+        let input;
+        if (name === "apply_patch") {
+          const parsed = parseCodexPatch(payload.input ?? "");
+          mappedName = parsed.isNew ? "Write" : "Edit";
+          input = parsed;
+        } else {
+          input = { raw: payload.input ?? "" };
+        }
+        const toolCall = {
+          tool_use_id: callId,
+          name: mappedName,
+          input,
+          result: null,
+          resultTimestamp: null,
+          is_error: false,
+        };
+        currentBlocks.push({ kind: "tool_use", text: "", tool_call: toolCall, timestamp: ts });
+        pendingCalls.set(callId, toolCall);
+        continue;
+      }
+
+      // custom tool call result
+      if (ptype === "custom_tool_call_output") {
+        const callId = payload.call_id ?? "";
+        let output = "";
+        if (typeof payload.output === "string") {
+          output = payload.output;
+        } else if (payload.output?.output) {
+          output = payload.output.output;
+        }
+        if (pendingCalls.has(callId)) {
+          const tc = pendingCalls.get(callId);
+          tc.result = output.trim();
+          tc.resultTimestamp = ts;
+          tc.is_error = typeof payload.output === "object" && payload.output?.metadata?.exit_code !== 0;
+          pendingCalls.delete(callId);
+        }
+        continue;
+      }
+    }
+  }
+
+  // Handle case where session ends without task_complete
+  if (inTurn && (currentUserText || currentBlocks.length)) {
+    turnIndex++;
+    turns.push({
+      index: turnIndex,
+      user_text: currentUserText,
+      blocks: currentBlocks,
+      timestamp: currentTimestamp,
+    });
+  }
+
+  // Drop empty turns and re-index
+  const filtered = turns.filter((t) => {
+    if (t.user_text) return true;
+    return t.blocks.some((b) => b.kind === "tool_use" || (b.kind === "text" && b.text) || (b.kind === "thinking" && b.text));
+  });
+  for (let j = 0; j < filtered.length; j++) {
+    filtered[j].index = j + 1;
+  }
+  return filtered;
+}
+
+/**
  * Parse a JSONL transcript into a list of Turns.
  * @param {string} filePath
  * @returns {Turn[]}
  */
 export function parseTranscript(filePath) {
-  const { entries, format } = parseJsonl(filePath);
+  const format = detectFormat(filePath);
+  if (format === "codex") return parseCodexTranscript(filePath);
+  const { entries, format: fmt } = parseJsonl(filePath);
   const turns = [];
   let i = 0;
   let turnIndex = 0;
@@ -331,7 +620,7 @@ export function parseTranscript(filePath) {
   }
 
   // Cursor: all assistant blocks except the last per turn are thinking
-  if (format === "cursor") {
+  if (fmt === "cursor") {
     for (const turn of filtered) {
       for (let j = 0; j < turn.blocks.length - 1; j++) {
         if (turn.blocks[j].kind === "text") {

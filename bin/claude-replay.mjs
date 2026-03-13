@@ -172,7 +172,7 @@ for (const arg of positionals) {
     const matches = resolveSessionId(arg);
     if (matches.length === 0) {
       console.error(`Error: no session found matching "${arg}"`);
-      console.error("Searched ~/.claude/projects/ and ~/.cursor/projects/");
+      console.error("Searched ~/.claude/projects/, ~/.cursor/projects/, and ~/.codex/sessions/");
       process.exit(1);
     } else if (matches.length === 1) {
       inputFiles.push(matches[0].path);
@@ -371,7 +371,7 @@ const html = render(turns, {
   redactSecrets: !values["no-auto-redact"],
   redactRules,
   userLabel: values["user-label"],
-  assistantLabel: values["assistant-label"] || (format === "cursor" ? "Assistant" : "Claude"),
+  assistantLabel: values["assistant-label"] || (format === "codex" ? "Codex" : format === "cursor" ? "Assistant" : "Claude"),
   title,
   description: values.description,
   ogImage: values["og-image"],

@@ -147,7 +147,7 @@ function buildRenderOpts(options, session, overrides = {}) {
     redactSecrets: options.redactSecrets !== false,
     redactRules: options.redactRules || [],
     userLabel: options.userLabel || "User",
-    assistantLabel: options.assistantLabel || (session.format === "cursor" ? "Assistant" : "Claude"),
+    assistantLabel: options.assistantLabel || (session.format === "codex" ? "Codex" : session.format === "cursor" ? "Assistant" : "Claude"),
     title: options.title || "Replay",
     description: options.description || "",
     ogImage: options.ogImage || "",
@@ -233,7 +233,16 @@ function discoverSessions() {
       try { ids = readdirSync(transcriptsDir); } catch { continue; }
       const cursorSessions = [];
       for (const id of ids.sort().reverse()) {
-        const filePath = join(transcriptsDir, id, "transcript.jsonl");
+        const idDir = join(transcriptsDir, id);
+        try { if (!statSync(idDir).isDirectory()) continue; } catch { continue; }
+        // Try transcript.jsonl first, then <uuid>.jsonl
+        let filePath = join(idDir, "transcript.jsonl");
+        try {
+          statSync(filePath);
+        } catch {
+          filePath = join(idDir, id + ".jsonl");
+          try { statSync(filePath); } catch { continue; }
+        }
         try {
           const stat = statSync(filePath);
           cursorSessions.push({ file: id, path: filePath, date: stat.mtime.toISOString() });
@@ -245,6 +254,38 @@ function discoverSessions() {
       cursorGroup.projects.push({ name: displayName, dirName: proj, sessions: cursorSessions });
     }
     if (cursorGroup.projects.length > 0) groups.push(cursorGroup);
+  } catch { /* directory doesn't exist */ }
+
+  // Codex CLI: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl
+  const codexBase = join(home, ".codex", "sessions");
+  try {
+    const codexGroup = { name: "Codex CLI", projects: [] };
+    // Walk year/month/day directories
+    for (const year of readdirSync(codexBase).sort().reverse()) {
+      const yearPath = join(codexBase, year);
+      try { if (!statSync(yearPath).isDirectory()) continue; } catch { continue; }
+      for (const month of readdirSync(yearPath).sort().reverse()) {
+        const monthPath = join(yearPath, month);
+        try { if (!statSync(monthPath).isDirectory()) continue; } catch { continue; }
+        for (const day of readdirSync(monthPath).sort().reverse()) {
+          const dayPath = join(monthPath, day);
+          try { if (!statSync(dayPath).isDirectory()) continue; } catch { continue; }
+          const files = readdirSync(dayPath).filter((f) => f.endsWith(".jsonl")).sort().reverse();
+          if (files.length === 0) continue;
+          codexGroup.projects.push({
+            name: `${year}-${month}-${day}`,
+            dirName: `${year}/${month}/${day}`,
+            sessions: files.map((f) => {
+              const fullPath = join(dayPath, f);
+              let date = null;
+              try { date = statSync(fullPath).mtime.toISOString(); } catch { /* ignore */ }
+              return { file: f, path: fullPath, date };
+            }),
+          });
+        }
+      }
+    }
+    if (codexGroup.projects.length > 0) groups.push(codexGroup);
   } catch { /* directory doesn't exist */ }
 
   return groups;

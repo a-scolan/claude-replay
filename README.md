@@ -10,18 +10,19 @@
 
 AI coding sessions are great for development, but hard to share. Screen recordings are bulky and transcripts are hard to navigate.
 
-**claude-replay** turns Claude Code session logs into interactive, shareable HTML replays. The generated replay is a single self-contained HTML file with no external dependencies — you can email it, host it anywhere, or embed it in documentation. Also supports Cursor agent transcripts.
+**claude-replay** turns Claude Code session logs into interactive, shareable HTML replays. The generated replay is a single self-contained HTML file with no external dependencies — you can email it, host it anywhere, or embed it in documentation. Also supports Cursor and Codex CLI transcripts.
 
 ![Demo](https://raw.githubusercontent.com/es617/claude-replay/main/docs/demo.gif)
 
 **[Try the live demo](https://es617.github.io/claude-replay/demo-redaction.html)**
 
-Claude Code and Cursor store conversation transcripts as JSONL files on disk. **claude-replay** auto-detects the format and converts them into visual replays suitable for blog posts, demos, and documentation.
+Claude Code, Cursor, and Codex CLI store conversation transcripts as JSONL files on disk. **claude-replay** auto-detects the format and converts them into visual replays suitable for blog posts, demos, and documentation.
 
 | Source | Transcript location |
 |---|---|
 | Claude Code | `~/.claude/projects/<project>/` |
 | Cursor | `~/.cursor/projects/<project>/agent-transcripts/<id>/` |
+| Codex CLI | `~/.codex/sessions/<date>/` |
 
 ## Features
 
@@ -75,7 +76,7 @@ claude-replay session1-id session2-id -o combined.html
 
 Running `claude-replay` with no arguments opens a browser-based editor that auto-discovers your Claude Code and Cursor sessions. From there you can browse, edit, preview, and export replays visually.
 
-For CLI usage, you can pass just a session ID — claude-replay will search `~/.claude/projects/` and `~/.cursor/projects/` to find the matching file. Or pass the full path to a JSONL file directly.
+For CLI usage, you can pass just a session ID — claude-replay will search `~/.claude/projects/`, `~/.cursor/projects/`, and `~/.codex/sessions/` to find the matching file. Or pass the full path to a JSONL file directly.
 
 ### Cursor
 
@@ -83,6 +84,14 @@ Cursor transcripts are also supported — the format is auto-detected. Cursor tr
 
 ```bash
 claude-replay ~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl -o replay.html
+```
+
+### Codex CLI
+
+Codex CLI (OpenAI) transcripts are also supported — the format is auto-detected. Codex tool calls (`exec_command`, `apply_patch`) are mapped to their Claude Code equivalents (`Bash`, `Edit`/`Write`) so they render with the same diff views and command previews.
+
+```bash
+claude-replay ~/.codex/sessions/2026/03/12/rollout-<id>.jsonl -o replay.html
 ```
 
 ## Web Editor
@@ -97,7 +106,7 @@ claude-replay --port 8080
 ![Editor](https://raw.githubusercontent.com/es617/claude-replay/main/docs/editor-demo.gif)
 
 The editor provides:
-- **Session browser** — auto-discovers sessions from `~/.claude/projects/` and `~/.cursor/projects/`, plus a folder navigator for JSONL files stored elsewhere
+- **Session browser** — auto-discovers sessions from `~/.claude/projects/`, `~/.cursor/projects/`, and `~/.codex/sessions/`, plus a folder navigator for JSONL files stored elsewhere
 - **Turn editor** — include/exclude turns, edit user prompts, expand assistant blocks (read-only), add bookmarks
 - **Options panel** — theme, speed, thinking/tool call toggles, redaction rules, labels
 - **Live preview** — updates as you edit, renders the same output as the CLI
@@ -113,7 +122,7 @@ claude-replay <input> [input2...] [options]     Generate replay from CLI
 claude-replay extract <replay.html> [-o output.json]
 ```
 
-Each `<input>` can be a `.jsonl` file path or a session ID. If it does not end in `.jsonl` and is not an existing file path, it is treated as a session ID. claude-replay searches `~/.claude/projects/` and `~/.cursor/projects/` for a matching session file. You can find your current session ID in Claude Code by running `/status`.
+Each `<input>` can be a `.jsonl` file path or a session ID. If it does not end in `.jsonl` and is not an existing file path, it is treated as a session ID. claude-replay searches `~/.claude/projects/`, `~/.cursor/projects/`, and `~/.codex/sessions/` for a matching session file. You can find your current session ID in Claude Code by running `/status`.
 
 Multiple inputs are concatenated into a single replay (up to 20). When all sessions have timestamps, turns are sorted chronologically; otherwise command-line order is used. This is useful when accepting a plan creates a new session — chain the sessions to get the full story in one replay.
 
@@ -366,6 +375,10 @@ One JSON object per line with a `type` field (`user`, `assistant`, `system`, `pr
 ### Cursor
 
 One JSON object per line with a top-level `role` field. No timestamps. Thinking appears as inline text. The format is auto-detected — no flags needed.
+
+### Codex CLI
+
+Event-based JSONL with typed events (`session_meta`, `response_item`, `event_msg`, etc.). Includes timestamps. Tool calls (`exec_command`, `apply_patch`) are mapped to Claude Code equivalents for consistent rendering. Codex's encrypted reasoning blocks are skipped; commentary messages are shown as thinking blocks. The format is auto-detected — no flags needed.
 
 ## Requirements
 
