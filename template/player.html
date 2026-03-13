@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='none' stroke='%23bb9af7' stroke-width='2'/><polygon points='12,8 12,24 24,16' fill='%23bb9af7'/></svg>">
 <title>/*PAGE_TITLE*/</title>
 <meta name="theme-color" content="/*THEME_BG*/">
 <meta property="og:title" content="/*PAGE_TITLE*/">
@@ -1372,7 +1373,7 @@ body.in-iframe .bar-title:hover {
   // § RENDERING
   // ═══════════════════════════════════════════
 
-  function renderTurn(turn) {
+  function renderTurn(turn, displayNum) {
     const el = document.createElement("div");
     el.className = "turn";
     el.dataset.index = turn.index;
@@ -1393,9 +1394,10 @@ body.in-iframe .bar-title:hover {
     const tsHtml = relStr || absStr
       ? `<span class="turn-header-ts" ${absStr ? `title="${absStr}"` : ""}>${relStr || absStr}</span>`
       : "";
+    const label = displayNum != null ? displayNum : turn.index;
     html += `<div class="turn-header" onclick="this.parentElement.classList.toggle('collapsed')">
       <span class="turn-header-chevron">&#9660;</span>
-      <span class="turn-header-label">#${turn.index}</span>
+      <span class="turn-header-label">#${label}</span>
       ${tsHtml}
     </div>`;
 
@@ -1513,7 +1515,7 @@ body.in-iframe .bar-title:hover {
         divider.textContent = bmLabel;
         transcript.appendChild(divider);
       }
-      const el = renderTurn(turn);
+      const el = renderTurn(turn, i + 1);
       transcript.appendChild(el);
     }
   }
@@ -2467,6 +2469,28 @@ body.in-iframe .bar-title:hover {
   }
   // else: splash is visible, currentTurn = 0, progress at 0%
   updateProgress();
+
+  // React to hash changes (e.g. from parent editor iframe control)
+  window.addEventListener("hashchange", () => {
+    const m = location.hash.match(/turn=(\d+)/);
+    if (!m) return;
+    const target = Math.min(parseInt(m[1], 10), TURNS.length);
+    if (target > 0) {
+      stopPlay();
+      hideSplash();
+      showUpTo(target, { skipScroll: true });
+      // Scroll to TOP of the target turn (showUpTo scrolls to bottom)
+      const el = turnElements()[target - 1];
+      if (el) {
+        scrollProtectUntil = Date.now() + 2000;
+        requestAnimationFrame(() => {
+          const barH = getControlsHeight();
+          const targetY = el.getBoundingClientRect().top + window.scrollY - barH - 12;
+          smoothScrollTo(Math.max(0, targetY), 400);
+        });
+      }
+    }
+  });
 
   $("#splash-play").addEventListener("click", () => startPlay());
   document.body.dataset.ready = "1";

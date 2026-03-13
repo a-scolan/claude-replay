@@ -7,13 +7,14 @@
 import { parseArgs } from "node:util";
 import { basename, dirname } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { parseTranscript, filterTurns, detectFormat, applyPacedTiming } from "../src/parser.mjs";
 import { render } from "../src/renderer.mjs";
 import { getTheme, loadThemeFile, listThemes } from "../src/themes.mjs";
 import { extractData } from "../src/extract.mjs";
 
 const options = {
+  port: { type: "string" },
   output: { type: "string", short: "o" },
   turns: { type: "string" },
   "exclude-turns": { type: "string" },
@@ -51,16 +52,29 @@ try {
 
 const { values, positionals } = parsed;
 
+// --- Editor (default when no args, or explicit "editor" subcommand) ---
+if (positionals.length === 0 || positionals[0] === "editor") {
+  if (positionals[0] === "editor" || !values.help) {
+    const { startEditor } = await import("../src/editor-server.mjs");
+    const port = values.port ? parseInt(values.port, 10) : 7331;
+    await startEditor(port);
+    // startEditor returns a promise that never resolves — server stays running
+  }
+}
+
 if (values.help) {
-  console.log(`Usage: claude-replay <input.jsonl> [options]
+  console.log(`Usage: claude-replay [--port N]         Launch the web editor (default)
+       claude-replay <input.jsonl> [options]  Generate replay from CLI
        claude-replay extract <replay.html> [-o output.json]
 
 Convert Claude Code session transcripts into embeddable HTML replays.
 
 Commands:
+  (no args)             Launch web-based editor UI (default)
   extract               Extract embedded turn data from a generated replay HTML
 
 Options:
+  --port N                Port for the editor server (default: 7331)
   -o, --output FILE       Output HTML file (default: stdout)
   --turns N-M             Only include turns N through M
   --exclude-turns N,N,... Exclude specific turns by index
@@ -127,10 +141,6 @@ if (positionals[0] === "extract") {
 }
 
 const inputFile = positionals[0];
-if (!inputFile) {
-  console.error("Error: input file is required. Usage: claude-replay <input.jsonl> [options]");
-  process.exit(1);
-}
 
 if (!existsSync(inputFile)) {
   console.error(`Error: file not found: ${inputFile}`);
@@ -311,7 +321,7 @@ if (values.output) {
   if (values.open) {
     const cmd = process.platform === "darwin" ? "open"
       : process.platform === "win32" ? "start" : "xdg-open";
-    exec(`${cmd} ${JSON.stringify(values.output)}`);
+    execFile(cmd, [values.output], () => {});
   }
 } else {
   if (values.open) {
