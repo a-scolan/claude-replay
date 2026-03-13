@@ -71,15 +71,18 @@ if (positionals.length === 0 || positionals[0] === "editor") {
 
 if (values.help) {
   console.log(`Usage: claude-replay [--port N]         Launch the web editor (default)
-       claude-replay <input.jsonl> [options]  Generate replay from CLI
-       claude-replay <session-id> [options]   Find session by ID and generate
+       claude-replay <input> [input2...] [options]  Generate replay from CLI
        claude-replay extract <replay.html> [-o output.json]
 
 Convert Claude Code session transcripts into embeddable HTML replays.
 
-If <input> does not end in .jsonl and is not an existing file, it is treated
-as a session ID. claude-replay searches ~/.claude/projects/ and
-~/.cursor/projects/ for a matching session file.
+<input> can be a .jsonl file path or a session ID. If it does not end in
+.jsonl and is not an existing file, it is treated as a session ID and
+searched in ~/.claude/projects/ and ~/.cursor/projects/.
+
+Multiple inputs are concatenated into a single replay (up to 20). Sessions
+with timestamps are sorted chronologically; otherwise command-line order is
+used. Turns are re-indexed sequentially.
 
 Commands:
   (no args)             Launch web-based editor UI (default)
@@ -152,29 +155,37 @@ if (positionals[0] === "extract") {
   process.exit(0);
 }
 
-let inputFile = positionals[0];
+// Resolve all input files (paths or session IDs)
+const MAX_INPUTS = 20;
+if (positionals.length > MAX_INPUTS) {
+  console.error(`Error: too many input files (max ${MAX_INPUTS})`);
+  process.exit(1);
+}
 
-if (!existsSync(inputFile)) {
-  // Treat as session ID if it doesn't look like a file path
-  if (!inputFile.endsWith(".jsonl")) {
+const inputFiles = [];
+for (const arg of positionals) {
+  if (existsSync(arg)) {
+    inputFiles.push(arg);
+  } else if (!arg.endsWith(".jsonl")) {
+    // Treat as session ID
     const { resolveSessionId } = await import("../src/resolve-session.mjs");
-    const matches = resolveSessionId(inputFile);
+    const matches = resolveSessionId(arg);
     if (matches.length === 0) {
-      console.error(`Error: no session found matching "${inputFile}"`);
+      console.error(`Error: no session found matching "${arg}"`);
       console.error("Searched ~/.claude/projects/ and ~/.cursor/projects/");
       process.exit(1);
     } else if (matches.length === 1) {
-      inputFile = matches[0].path;
-      console.error(`Found: ${matches[0].group} / ${matches[0].project} → ${inputFile}`);
+      inputFiles.push(matches[0].path);
+      console.error(`Found: ${matches[0].group} / ${matches[0].project} → ${matches[0].path}`);
     } else {
-      console.error(`Multiple sessions match "${inputFile}":`);
+      console.error(`Multiple sessions match "${arg}":`);
       for (let i = 0; i < matches.length; i++) {
         console.error(`  ${i + 1}) ${matches[i].group} / ${matches[i].project} — ${matches[i].path}`);
       }
       process.exit(1);
     }
   } else {
-    console.error(`Error: file not found: ${inputFile}`);
+    console.error(`Error: file not found: ${arg}`);
     process.exit(1);
   }
 }
@@ -231,10 +242,32 @@ if (values["exclude-turns"]) {
   });
 }
 
-// Parse and filter
-const format = detectFormat(inputFile);
-let turns = parseTranscript(inputFile);
-turns = filterTurns(turns, {
+// Parse all input files and concatenate turns
+let format = detectFormat(inputFiles[0]);
+let allTurns = [];
+for (const file of inputFiles) {
+  const fileTurns = parseTranscript(file);
+  if (inputFiles.length > 1) {
+    const f = detectFormat(file);
+    if (f === "cursor") format = "cursor"; // if any is cursor, use cursor label
+  }
+  allTurns.push(...fileTurns);
+}
+
+// Sort by timestamp if all sessions have them, then re-index sequentially
+if (inputFiles.length > 1) {
+  const allHaveTimestamps = allTurns.length > 0 && allTurns.every((t) => t.timestamp);
+  if (allHaveTimestamps) {
+    allTurns.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+  // Re-index sequentially
+  for (let i = 0; i < allTurns.length; i++) {
+    allTurns[i].index = i + 1;
+  }
+  console.error(`Merged ${inputFiles.length} sessions (${allTurns.length} turns total)`);
+}
+
+let turns = filterTurns(allTurns, {
   turnRange,
   excludeTurns,
   timeFrom: values.from,
@@ -261,7 +294,7 @@ const speed = parseFloat(values.speed) || 1.0;
 // Derive title: CLI override > parent folder name > filename
 let title = values.title;
 if (!title) {
-  const dir = basename(dirname(inputFile));
+  const dir = basename(dirname(inputFiles[0]));
   // Claude projects dirs look like "-Users-enrico-Personal-project-name"
   // Extract the last segment as the project name
   const parts = dir.replace(/^-+/, "").split("-");
@@ -269,7 +302,7 @@ if (!title) {
   if (projectName && projectName !== "." && projectName !== "/") {
     title = "Replay — " + projectName;
   } else {
-    title = "Replay — " + basename(inputFile, ".jsonl");
+    title = "Replay — " + basename(inputFiles[0], ".jsonl");
   }
 }
 

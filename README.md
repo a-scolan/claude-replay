@@ -68,6 +68,9 @@ claude-replay abc123def456 -o replay.html
 
 # Or pass the full path
 claude-replay ~/.claude/projects/-Users-me-myproject/session-id.jsonl -o replay.html
+
+# Chain multiple sessions into one replay
+claude-replay session1-id session2-id -o combined.html
 ```
 
 Running `claude-replay` with no arguments opens a browser-based editor that auto-discovers your Claude Code and Cursor sessions. From there you can browse, edit, preview, and export replays visually.
@@ -105,13 +108,14 @@ The editor runs a local server on `127.0.0.1` (localhost only, not exposed to th
 ## Usage
 
 ```
-claude-replay [--port N]                   Launch the web editor (default)
-claude-replay <input.jsonl> [options]      Generate replay from CLI
-claude-replay <session-id> [options]       Find session by ID and generate
+claude-replay [--port N]                        Launch the web editor (default)
+claude-replay <input> [input2...] [options]     Generate replay from CLI
 claude-replay extract <replay.html> [-o output.json]
 ```
 
-If the input does not end in `.jsonl` and is not an existing file path, it is treated as a session ID. claude-replay searches `~/.claude/projects/` and `~/.cursor/projects/` for a matching session file. You can find your current session ID in Claude Code by running `/status`.
+Each `<input>` can be a `.jsonl` file path or a session ID. If it does not end in `.jsonl` and is not an existing file path, it is treated as a session ID. claude-replay searches `~/.claude/projects/` and `~/.cursor/projects/` for a matching session file. You can find your current session ID in Claude Code by running `/status`.
+
+Multiple inputs are concatenated into a single replay (up to 20). When all sessions have timestamps, turns are sorted chronologically; otherwise command-line order is used. This is useful when accepting a plan creates a new session — chain the sessions to get the full story in one replay.
 
 ### Commands
 
@@ -177,6 +181,9 @@ claude-replay session.jsonl --theme dracula -o replay.html
 
 # Pipe to stdout for further processing
 claude-replay session.jsonl --turns 1-5 > snippet.html
+
+# Chain multiple sessions into one replay
+claude-replay abc123 def456 ghi789 -o combined.html
 ```
 
 ## Timing modes
