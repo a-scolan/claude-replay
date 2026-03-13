@@ -12,6 +12,7 @@ import { render } from "./renderer.mjs";
 import { getTheme, listThemes } from "./themes.mjs";
 
 const EDITOR_HTML_PATH = new URL("../template/editor.html", import.meta.url);
+const PKG = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
 
 // ---------------------------------------------------------------------------
 // In-memory session store
@@ -334,7 +335,7 @@ async function handleApi(req, res, pathname) {
 
   // GET /api/sessions — list discovered sessions + home directory
   if (pathname === "/api/sessions" && req.method === "GET") {
-    return json(res, { groups: discoverSessions(), homedir: homedir() });
+    return json(res, { groups: discoverSessions(), homedir: homedir(), version: PKG.version });
   }
 
   // GET /api/themes — list available themes

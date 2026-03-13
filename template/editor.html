@@ -880,7 +880,7 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       <h3>Privacy</h3>
       <p>The editor runs locally on <code>127.0.0.1</code>. Your session data never leaves your machine. Original JSONL files are never modified.</p>
 
-      <p class="modal-footer-link"><a href="https://github.com/anthropics/claude-replay" target="_blank" rel="noopener">GitHub</a> &middot; <a href="https://github.com/anthropics/claude-replay/issues" target="_blank" rel="noopener">Report an issue</a></p>
+      <p class="modal-footer-link"><a href="https://github.com/anthropics/claude-replay" target="_blank" rel="noopener">GitHub</a> &middot; <a href="https://github.com/anthropics/claude-replay/issues" target="_blank" rel="noopener">Report an issue</a> &middot; <span id="helpVersion"></span></p>
     </div>
   </div>
 </div>
@@ -1005,6 +1005,7 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       const data = await apiJson("GET", "/api/sessions");
       const groups = data.groups || data;
       if (data.homedir) browsePathInput.value = data.homedir;
+      if (data.version) $("helpVersion").textContent = "v" + data.version;
       renderSessions(groups);
     } catch (e) {
       sessionsTree.innerHTML = `<div class="empty-state empty-state-error">Failed to load sessions: ${esc(e.message)}</div>`;
