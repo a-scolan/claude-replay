@@ -59,6 +59,13 @@ if (values.version) {
   process.exit(0);
 }
 
+if (values["list-themes"]) {
+  for (const name of listThemes()) {
+    console.log(name);
+  }
+  process.exit(0);
+}
+
 // --- Editor (default when no args, or explicit "editor" subcommand) ---
 if (positionals.length === 0 || positionals[0] === "editor") {
   if (positionals[0] === "editor" || !values.help) {
@@ -116,13 +123,6 @@ Options:
   --open                  Open the generated HTML in the default browser (requires -o)
   --list-themes           List available built-in themes and exit
   -h, --help              Show this help message`);
-  process.exit(0);
-}
-
-if (values["list-themes"]) {
-  for (const name of listThemes()) {
-    console.log(name);
-  }
   process.exit(0);
 }
 
