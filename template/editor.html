@@ -1221,10 +1221,9 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       excludedTurns = new Set(data.excludedTurns || []);
       bookmarks = new Map();
 
-      // Restore bookmarks: prefer savedBookmarks (persisted state), fall back to extracted
-      const bmSource = data.savedBookmarks || (data.bookmarks || []).map((bm) => [bm.turn, bm.label]);
-      for (const [turn, label] of bmSource) {
-        bookmarks.set(turn, label);
+      // Restore bookmarks from session state
+      for (const bm of data.bookmarks || []) {
+        bookmarks.set(bm.turn, bm.label);
       }
 
       const parts = path.split("/");
@@ -1608,8 +1607,7 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       currentTurns = data.turns;
       excludedTurns = new Set(data.excludedTurns || []);
       bookmarks = new Map();
-      const bmSrc = data.savedBookmarks || (data.bookmarks || []).map((bm) => [bm.turn, bm.label]);
-      for (const [turn, label] of bmSrc) bookmarks.set(turn, label);
+      for (const bm of data.bookmarks || []) bookmarks.set(bm.turn, bm.label);
       const filename = file.name.replace(/\.html$/, "");
       titleInput.value = "Replay \u2014 " + filename;
       titleInput.disabled = false;

@@ -18,11 +18,50 @@ const PKG = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 
 // ---------------------------------------------------------------------------
 // In-memory session store
-// Map<sessionId, { originalTurns, workingTurns, sourcePath, format, excludedTurns, bookmarks }>
 // ---------------------------------------------------------------------------
 
 const sessions = new Map();
 let sessionCounter = 0;
+
+/**
+ * Create a new session, restoring from autosave if available.
+ * @param {object[]} turns - parsed turns from the source file
+ * @param {string} sourcePath - path or name identifying the source
+ * @param {string} format - "claude" | "cursor" | "codex" | "extracted"
+ * @param {object[]} [sourceBookmarks] - bookmarks from the source (e.g. extracted HTML)
+ * @returns {{ id: string, session: object, hasEdits: boolean }}
+ */
+function createSession(turns, sourcePath, format, sourceBookmarks = []) {
+  const saved = loadAutosave(sourcePath);
+  const id = "s" + (++sessionCounter);
+  const session = {
+    originalTurns: JSON.parse(JSON.stringify(turns)),
+    workingTurns: saved ? saved.workingTurns : turns,
+    sourcePath,
+    format,
+    originalBookmarks: sourceBookmarks,
+    excludedTurns: saved ? (saved.excludedTurns || []) : [],
+    bookmarks: saved ? (saved.bookmarks || []) : sourceBookmarks.slice(),
+  };
+  const hasEdits = saved
+    ? JSON.stringify(session.workingTurns) !== JSON.stringify(session.originalTurns)
+    : false;
+  sessions.set(id, session);
+  return { id, session, hasEdits };
+}
+
+/** Build the standard session response payload. */
+function sessionResponse(id, session, hasEdits, extra = {}) {
+  return {
+    sessionId: id,
+    format: session.format,
+    hasEdits,
+    turns: summarizeTurns(session.workingTurns),
+    excludedTurns: session.excludedTurns,
+    bookmarks: session.bookmarks,
+    ...extra,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Autosave
@@ -448,58 +487,27 @@ async function handleApi(req, res, pathname) {
       for (const [existingId, s] of sessions) {
         if (s.sourcePath === filePath) {
           const hasEdits = JSON.stringify(s.workingTurns) !== JSON.stringify(s.originalTurns);
-          return json(res, {
-            sessionId: existingId,
-            format: s.format,
-            hasEdits,
-            turns: summarizeTurns(s.workingTurns),
-            bookmarks: s.extractedBookmarks || [],
-            excludedTurns: s.excludedTurns || [],
-            savedBookmarks: s.bookmarks || [],
-          });
+          return json(res, sessionResponse(existingId, s, hasEdits));
         }
       }
       // New session
-      let format, turns, bookmarks;
+      let format, turns, sourceBookmarks = [];
       if (filePath.endsWith(".html")) {
-        const html = readFileSync(filePath, "utf-8");
         let data;
         try {
-          data = extractData(html);
+          data = extractData(readFileSync(filePath, "utf-8"));
         } catch {
           return error(res, "Not a valid claude-replay HTML file", 400);
         }
         turns = data.turns;
-        bookmarks = data.bookmarks;
+        sourceBookmarks = data.bookmarks || [];
         format = "extracted";
       } else {
         format = detectFormat(filePath);
         turns = parseTranscript(filePath);
       }
-      const id = "s" + (++sessionCounter);
-      const saved = loadAutosave(filePath);
-      const restoredTurns = saved ? saved.workingTurns : turns;
-      const restoredExcluded = saved ? (saved.excludedTurns || []) : [];
-      const restoredBookmarks = saved ? (saved.bookmarks || []) : (bookmarks || []).map((bm) => [bm.turn, bm.label]);
-      const hasEdits = saved ? JSON.stringify(restoredTurns) !== JSON.stringify(turns) : false;
-      sessions.set(id, {
-        originalTurns: JSON.parse(JSON.stringify(turns)),
-        workingTurns: restoredTurns,
-        sourcePath: filePath,
-        format,
-        extractedBookmarks: bookmarks || [],
-        excludedTurns: restoredExcluded,
-        bookmarks: restoredBookmarks,
-      });
-      return json(res, {
-        sessionId: id,
-        format,
-        hasEdits,
-        turns: summarizeTurns(restoredTurns),
-        bookmarks: bookmarks || [],
-        excludedTurns: restoredExcluded,
-        savedBookmarks: restoredBookmarks,
-      });
+      const { id, session, hasEdits } = createSession(turns, filePath, format, sourceBookmarks);
+      return json(res, sessionResponse(id, session, hasEdits));
     } catch (e) {
       return error(res, `Failed to parse: ${e.message}`, 500);
     }
@@ -516,27 +524,9 @@ async function handleApi(req, res, pathname) {
     } catch {
       return error(res, "Not a valid claude-replay HTML file", 400);
     }
-    const id = "s" + (++sessionCounter);
-    const turns = data.turns;
-    sessions.set(id, {
-      originalTurns: JSON.parse(JSON.stringify(turns)),
-      workingTurns: turns,
-      sourcePath: filename || "imported.html",
-      format: "extracted",
-      extractedBookmarks: data.bookmarks || [],
-      excludedTurns: [],
-      bookmarks: (data.bookmarks || []).map((bm) => [bm.turn, bm.label]),
-    });
-    return json(res, {
-      sessionId: id,
-      format: "extracted",
-      hasEdits: false,
-      turns: summarizeTurns(turns),
-      bookmarks: data.bookmarks || [],
-      excludedTurns: [],
-      savedBookmarks: (data.bookmarks || []).map((bm) => [bm.turn, bm.label]),
-      filename: filename || "imported.html",
-    });
+    const sourcePath = filename || "imported.html";
+    const { id, session, hasEdits } = createSession(data.turns, sourcePath, "extracted", data.bookmarks || []);
+    return json(res, sessionResponse(id, session, hasEdits));
   }
 
   // POST /api/edit — update a turn's user text
@@ -580,7 +570,7 @@ async function handleApi(req, res, pathname) {
     if (!session) return error(res, "Unknown session", 404);
     // Persist client-side state so it survives session switching
     session.excludedTurns = options.excludeTurns || [];
-    session.bookmarks = (options.bookmarks || []).map((bm) => [bm.turn, bm.label]);
+    session.bookmarks = options.bookmarks || [];
     scheduleAutosave(session);
     const turns = prepareTurns(session, options);
     const html = render(turns, buildRenderOpts(options, session));

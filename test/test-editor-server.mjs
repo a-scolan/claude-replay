@@ -333,9 +333,9 @@ describe("editor-server API", () => {
     assert.deepEqual(reloadData.excludedTurns, [2, 4]);
 
     // Bookmarks should be restored as [turn, label] pairs
-    assert.equal(reloadData.savedBookmarks.length, 2);
-    assert.deepEqual(reloadData.savedBookmarks[0], [1, "First"]);
-    assert.deepEqual(reloadData.savedBookmarks[1], [3, "Third"]);
+    assert.equal(reloadData.bookmarks.length, 2);
+    assert.deepEqual(reloadData.bookmarks[0], { turn: 1, label: "First" });
+    assert.deepEqual(reloadData.bookmarks[1], { turn: 3, label: "Third" });
   });
 
   it("reset clears persisted excluded turns and bookmarks", async () => {
@@ -374,7 +374,7 @@ describe("editor-server API", () => {
     });
     const reloadData = await reloadRes.json();
     assert.deepEqual(reloadData.excludedTurns, []);
-    assert.deepEqual(reloadData.savedBookmarks, []);
+    assert.deepEqual(reloadData.bookmarks, []);
   });
 
   // ── Autosave ─────────────────────────────────────────────
@@ -427,7 +427,7 @@ describe("editor-server API", () => {
       assert.equal(saved.sourcePath, tmpFixture);
       assert.equal(saved.workingTurns[0].user_text, "Autosave test");
       assert.deepEqual(saved.excludedTurns, [2]);
-      assert.deepEqual(saved.bookmarks, [[1, "Saved"]]);
+      assert.deepEqual(saved.bookmarks, [{ turn: 1, label: "Saved" }]);
     } finally {
       if (existsSync(tmpFixture)) unlinkSync(tmpFixture);
       // Clean up autosave file
