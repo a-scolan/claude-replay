@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0
+
+### Editor
+- Import HTML — re-edit previously exported replays via button or file browser
+- Export JSON — download session data (turns and bookmarks) as JSON
+- Content search — type `/` in session filter to search across all session files
+- Collapsible sub-blocks — tool calls and thinking collapsed by default, text open, click headers to toggle
+- Expand All / Collapse All buttons in toolbar
+- Ctrl/Cmd+F expands all blocks for browser search
+- Excluded turns and bookmarks persist when switching sessions
+- Autosave edits to `~/.claude-replay/autosave/`, restored on reopen
+- Reset confirmation modal (only when changes exist)
+- Reset indicator includes excluded turns and bookmarks, not just text edits
+- Options organized into Playback, Appearance, Content, Metadata, and Output groups
+- Browse panel shows `.html` files alongside `.jsonl`
+- Friendly error for non-replay HTML files
+
+### Player
+- Fix play from last turn resetting to beginning
+
 ## 0.4.1
 
 ### Fixes
