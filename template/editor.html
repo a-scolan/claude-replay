@@ -196,7 +196,17 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
   color: var(--text-dim);
   padding: 8px 12px 4px;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
+.session-group-label .arrow {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+.session-group-label.open .arrow { transform: rotate(90deg); }
+.session-group-content { display: none; }
+.session-group-label.open + .session-group-content { display: block; }
 
 .session-project { padding: 0; }
 
@@ -214,7 +224,7 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
 .session-project-name:hover { background: var(--bg-hover); }
 
 .session-project-name .arrow {
-  font-size: 10px;
+  font-size: 8px;
   transition: transform 0.15s;
   color: var(--text-dim);
 }
@@ -1156,7 +1166,8 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
     }
     let html = "";
     for (const group of groups) {
-      html += `<div class="session-group-label">${esc(group.name)}</div>`;
+      html += `<div class="session-group-label open"><span class="arrow">&#9654;</span> ${esc(group.name)}</div>`;
+      html += `<div class="session-group-content">`;
       for (const proj of group.projects) {
         const projId = `proj-${esc(group.name)}-${esc(proj.dirName)}`;
         html += `<div class="session-project">`;
@@ -1168,9 +1179,13 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
         }
         html += `</div></div>`;
       }
+      html += `</div>`;
     }
     sessionsTree.innerHTML = html;
 
+    sessionsTree.querySelectorAll(".session-group-label").forEach((el) => {
+      el.addEventListener("click", () => el.classList.toggle("open"));
+    });
     sessionsTree.querySelectorAll(".session-project-name").forEach((el) => {
       el.addEventListener("click", () => {
         el.classList.toggle("open");
@@ -1209,13 +1224,11 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       }
     });
     sessionsTree.querySelectorAll(".session-group-label").forEach((label) => {
-      let next = label.nextElementSibling;
-      let anyGroupVisible = false;
-      while (next && !next.classList.contains("session-group-label")) {
-        if (next.style.display !== "none") anyGroupVisible = true;
-        next = next.nextElementSibling;
-      }
+      const content = label.nextElementSibling;
+      if (!content || !content.classList.contains("session-group-content")) return;
+      const anyGroupVisible = content.querySelector(".session-project:not([style*='display: none'])") !== null;
       label.style.display = anyGroupVisible ? "" : "none";
+      content.style.display = anyGroupVisible ? "" : "none";
     });
   }
 
