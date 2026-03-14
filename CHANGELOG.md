@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+### Fixes
+- Fix `extract` command failing on minified replays
+
 ## 0.4.0
 
 ### Web Editor
