@@ -11,6 +11,8 @@ const GITHUB_CHAT_BASIC_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-
 const GITHUB_CHAT_TOOL_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-tool-calls.jsonl", import.meta.url));
 const GITHUB_CHAT_NO_TS_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-no-timestamps.jsonl", import.meta.url));
 const GITHUB_CHAT_VSCODE_PATCHLOG_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-vscode-patchlog.jsonl", import.meta.url));
+const GITHUB_CHAT_VSCODE_INLINE_REF_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-vscode-inline-ref.jsonl", import.meta.url));
+const GITHUB_CHAT_VSCODE_EDIT_FENCE_FIXTURE = fileURLToPath(new URL("./fixtures/github-chat-vscode-edit-fence.jsonl", import.meta.url));
 
 describe("parseTranscript", () => {
   // Fixture produces 3 turns (orphan assistant after tool result merges into previous):
@@ -295,11 +297,43 @@ describe("GitHub Chat format", () => {
     assert.equal(turns[0].user_text, "Check README");
 
     const kinds = turns[0].blocks.map((b) => b.kind);
-    assert.deepEqual(kinds, ["text", "thinking", "tool_use", "text"]);
+    assert.deepEqual(kinds, ["text", "thinking", "tool_use", "tool_use", "tool_use", "text"]);
 
-    const tool = turns[0].blocks.find((b) => b.kind === "tool_use");
-    assert.equal(tool.tool_call.name, "Read");
-    assert.equal(tool.tool_call.result, "Read README.md");
+    const readTool = turns[0].blocks.find((b) => b.kind === "tool_use" && b.tool_call?.name === "Read");
+    assert.ok(readTool);
+    assert.match(readTool.tool_call.input.file_path, /README\.md$/);
+    assert.equal(readTool.tool_call.result, "Read [](file:///c%3A/Users/test/Workspace/repo/README.md)");
+
+    const bashTool = turns[0].blocks.find((b) => b.kind === "tool_use" && b.tool_call?.name === "Bash");
+    assert.ok(bashTool);
+    assert.equal(bashTool.tool_call.input.command, "npm test");
+    assert.equal(bashTool.tool_call.input.language, "pwsh");
+    assert.match(bashTool.tool_call.input.cwd, /repo$/);
+    assert.equal(bashTool.tool_call.result, "Ran command `npm test`");
+
+    const todoTool = turns[0].blocks.find((b) => b.kind === "tool_use" && b.tool_call?.input?.tool_id === "manage_todo_list");
+    assert.ok(todoTool);
+    assert.equal(todoTool.tool_call.input.invocation, "");
+    assert.equal(todoTool.tool_call.input.todo_list.length, 2);
+    assert.match(todoTool.tool_call.input.todo_summary, /completed: Audit markdown file-ref rendering/);
+  });
+
+  it("preserves VS Code inlineReference items inside assistant text", () => {
+    const turns = parseTranscript(GITHUB_CHAT_VSCODE_INLINE_REF_FIXTURE);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].blocks.length, 1);
+    assert.equal(turns[0].blocks[0].kind, "text");
+    assert.match(turns[0].blocks[0].text, /inlineMarkdown/);
+    assert.match(turns[0].blocks[0].text, /file:\/\/\/c%3A\/Users\/test\/Workspace\/repo\/template\/player\.html/);
+    assert.match(turns[0].blocks[0].text, /file-ref/);
+  });
+
+  it("drops fence-only text artifacts emitted after VS Code Edit tool blocks", () => {
+    const turns = parseTranscript(GITHUB_CHAT_VSCODE_EDIT_FENCE_FIXTURE);
+    assert.equal(turns.length, 1);
+    assert.deepEqual(turns[0].blocks.map((b) => b.kind), ["tool_use", "text"]);
+    assert.equal(turns[0].blocks[0].tool_call?.name, "Edit");
+    assert.equal(turns[0].blocks[1].text, "Correctif appliqué.");
   });
 });
 

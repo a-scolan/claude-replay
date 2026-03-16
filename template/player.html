@@ -442,6 +442,34 @@ body.theme-mode-copilot.vscode-chat-ui .role-section.role-assistant {
 body.theme-mode-copilot .turn-header {
   background: #1b2230;
 }
+body.theme-mode-copilot .role-section {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+body.theme-mode-copilot .assistant-text h2,
+body.theme-mode-copilot .assistant-text h3,
+body.theme-mode-copilot .assistant-text h4 {
+  color: #f4f7ff;
+  letter-spacing: 0.01em;
+  margin-top: 0.95em;
+}
+body.theme-mode-copilot .assistant-text h2,
+body.theme-mode-copilot .assistant-text h3 {
+  border-bottom: 1px solid color-mix(in srgb, #6cb6ff 25%, var(--border) 75%);
+  padding-bottom: 0.26em;
+}
+body.theme-mode-copilot .assistant-text ul,
+body.theme-mode-copilot .assistant-text ol {
+  padding-left: 1.4em;
+}
+body.theme-mode-copilot .assistant-text li {
+  margin: 0.24em 0;
+}
+body.theme-mode-copilot .assistant-text li::marker {
+  color: #8ab4ff;
+}
+body.theme-mode-copilot .assistant-text hr {
+  border-top-color: color-mix(in srgb, #6cb6ff 25%, var(--border) 75%);
+}
 body.theme-mode-copilot .assistant-text pre,
 body.theme-mode-copilot .user-text pre,
 body.theme-mode-copilot .thinking-body pre {
@@ -472,6 +500,21 @@ body.theme-mode-copilot .tool-group-header {
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 0.92em;
+}
+.assistant-text code.file-ref,
+.user-text code.file-ref,
+.thinking-body code.file-ref {
+  background: color-mix(in srgb, var(--blue) 16%, var(--bg) 84%);
+  border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--border) 65%);
+  color: color-mix(in srgb, var(--blue) 72%, var(--text-bright) 28%);
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  line-height: 1.35;
+  white-space: nowrap;
+  font-weight: 600;
+  cursor: help;
 }
 .assistant-text h3, .assistant-text h4, .assistant-text h5, .assistant-text h6 {
   color: var(--text-bright);
@@ -1298,8 +1341,10 @@ body.theme-mode-copilot .tool-group-header {
     // Extract fenced code blocks first so markdown inside them is untouched
     const codeBlocks = [];
     let src = String(text).replace(/\r\n?/g, "\n").replace(/```([^\n]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      const normalizedCode = code.replace(/\n$/, "");
+      if (!normalizedCode.trim()) return "";
       const idx = codeBlocks.length;
-      codeBlocks.push(`<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ""}>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+      codeBlocks.push(`<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ""}>${escapeHtml(normalizedCode)}</code></pre>`);
       return `\x00CB${idx}\x00`;
     });
     // Process line by line
@@ -1419,14 +1464,112 @@ body.theme-mode-copilot .tool-group-header {
   }
 
   function inlineMarkdown(html) {
+    const fileRefPattern = /^(?:[A-Za-z]:[\\/])?(?:[^\s`<>:\"|?*]+[\\/])*[^\s`<>:\"|?*]+\.[A-Za-z0-9]{1,10}$/;
+    const bareFileRefRegex = /(^|[\s(])((?:[A-Za-z]:[\\/])?(?:[^\s`<>:\"|?*]+[\\/])*[^\s`<>:\"|?*]+\.[A-Za-z0-9]{1,10})(?=$|[\s),.;:!?])/g;
+
+    const getFileName = (filePath) => {
+      const normalized = String(filePath || "")
+        .trim()
+        .replace(/[?#].*$/, "")
+        .replace(/[\\/]+$/, "");
+      if (!normalized) return "";
+      const parts = normalized.split(/[\\/]/);
+      return parts[parts.length - 1] || normalized;
+    };
+
+    const renderFileRef = (filePath) => {
+      const fullPath = String(filePath || "").trim();
+      const fileName = getFileName(fullPath);
+      if (!fullPath && !fileName) return "";
+      const title = fullPath || fileName;
+      const label = fileName || fullPath;
+      return `<code class="file-ref" title="${title}">${label}</code>`;
+    };
+
+    const replaceOutsideTags = (source, regex, replacer) => {
+      return String(source || "")
+        .split(/(<[^>]+>)/g)
+        .map((part) => (part.startsWith("<") ? part : part.replace(regex, replacer)))
+        .join("");
+    };
+
+    const normalizeFileHref = (href) => {
+      const raw = String(href || "").trim();
+      if (!raw) return "";
+
+      if (/^file:\/\//i.test(raw)) {
+        let p = raw.replace(/^file:\/\/+/i, "");
+        try { p = decodeURIComponent(p); } catch {}
+        // file:///c:/... => c:/...
+        p = p.replace(/^\/([A-Za-z]:[\\/])/, "$1");
+        return p.replace(/[?#].*$/, "");
+      }
+
+      return raw.replace(/[?#].*$/, "");
+    };
+
+    const sanitizeHref = (href) => {
+      const h = (href || "").trim();
+      if (!h) return "";
+      if (/^javascript:/i.test(h)) return "";
+      return h;
+    };
+
+    // Markdown links: support both web links and file-path links.
+    // File links are rendered as highlighted file refs to mirror Copilot chips.
+    html = html.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (_, label, href) => {
+      const cleanHref = sanitizeHref(href);
+      const rawLabel = (label || "").trim();
+      const unwrappedLabel = rawLabel.replace(/^`(.+)`$/, "$1");
+      const isFileLabel = fileRefPattern.test(unwrappedLabel);
+      const filePathFromHref = normalizeFileHref(cleanHref);
+      const isFileHref = fileRefPattern.test(filePathFromHref);
+      const fileRefValue = isFileLabel ? unwrappedLabel : (isFileHref ? filePathFromHref : "");
+
+      if (!cleanHref || !/^https?:\/\//i.test(cleanHref)) {
+        if (fileRefValue) return renderFileRef(fileRefValue);
+        return rawLabel || cleanHref;
+      }
+
+      const textHtml = fileRefValue
+        ? renderFileRef(fileRefValue)
+        : rawLabel;
+      return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${textHtml}</a>`;
+    });
+
     // Inline code (backticks) — process first so content inside is protected
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/`([^`]+)`/g, (_, code) => {
+      const trimmed = (code || "").trim();
+      return fileRefPattern.test(trimmed)
+        ? renderFileRef(trimmed)
+        : `<code>${code}</code>`;
+    });
+
+    // Protect existing <code> blocks so we don't re-process their inner text
+    const codePlaceholders = [];
+    html = html.replace(/<code\b[^>]*>[\s\S]*?<\/code>/g, (block) => {
+      const idx = codePlaceholders.length;
+      codePlaceholders.push(block);
+      return `\u0000CODE${idx}\u0000`;
+    });
+
+    // Emphasize bare file references (not wrapped in backticks), but only in text nodes
+    html = replaceOutsideTags(
+      html,
+      bareFileRefRegex,
+      (m, prefix, ref) => {
+        if (prefix.includes("=")) return m;
+        return `${prefix}${renderFileRef(ref)}`;
+      }
+    );
+
+    // Restore protected code blocks
+    html = html.replace(/\u0000CODE(\d+)\u0000/g, (_, idx) => codePlaceholders[Number(idx)] || "");
+
     // Bold
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Italic (single * not preceded/followed by space — avoid false positives on bullet lists)
     html = html.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, '<em>$1</em>');
-    // Links
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return html;
   }
 
@@ -1449,15 +1592,23 @@ body.theme-mode-copilot .tool-group-header {
   function toolPreview(tc) {
     const name = tc.name || "";
     const input = tc.input || {};
+    const toolId = String(input.tool_id || "").toLowerCase();
     if (name === "Edit" || name === "Write" || name === "Read") {
-      return input.file_path || "";
+      return input.file_path || input.uri || input.invocation || "";
     }
     if (name === "Grep" || name === "Glob") {
       const p = input.pattern || "";
-      return input.path ? p + " in " + input.path : p;
+      if (p) return input.path ? p + " in " + input.path : p;
+      return input.invocation || "";
     }
     if (name === "Bash") {
-      return input.command || "";
+      return input.command || input.invocation || "";
+    }
+    if (toolId.includes("manage_todo_list")) {
+      return input.todo_summary || input.invocation || `${(input.todo_list || []).length || 0} todo item(s)`;
+    }
+    if (toolId.includes("run_in_terminal")) {
+      return input.command || input.invocation || "terminal command";
     }
     return truncate(input, 60);
   }

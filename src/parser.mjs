@@ -3,6 +3,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /**
  * @typedef {{ tool_use_id: string, name: string, input: object, result: string|null, resultTimestamp: string|null, is_error: boolean }} ToolCall
@@ -305,19 +306,63 @@ function extractCopilotTextMessage(maybeMessage) {
   if (typeof maybeMessage.text === "string") return cleanSystemTags(maybeMessage.text);
   if (Array.isArray(maybeMessage.parts)) {
     const text = maybeMessage.parts
-      .map((part) => part?.text ?? "")
+      .map((part) => extractCopilotItemText(part))
       .filter(Boolean)
-      .join("\n");
+      .join("");
     return cleanSystemTags(text);
   }
   return "";
 }
 
+function extractCopilotInlineReferenceText(ref) {
+  if (!ref || typeof ref !== "object") return "";
+
+  const name = typeof ref.name === "string" ? ref.name.trim() : "";
+  if (name) return `\`${name}\``;
+
+  const uriCandidate = ref.location?.uri ?? ref;
+  const external = typeof uriCandidate?.external === "string" ? uriCandidate.external : "";
+  if (external.startsWith("file://")) {
+    return `[](${external})`;
+  }
+
+  const uri = typeof uriCandidate?.toString === "function" ? String(uriCandidate) : "";
+  if (uri.startsWith("file://")) {
+    return `[](${uri})`;
+  }
+
+  const filePath = typeof uriCandidate?.fsPath === "string"
+    ? uriCandidate.fsPath
+    : typeof ref.fsPath === "string"
+      ? ref.fsPath
+      : "";
+  if (filePath) return `\`${filePath}\``;
+
+  return "";
+}
+
+function isMeaninglessFenceText(text) {
+  if (typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  return /^(?:```[\w-]*\s*)+$/.test(trimmed);
+}
+
+function stripMeaninglessFenceArtifacts(text) {
+  if (typeof text !== "string" || !text) return "";
+
+  const emptyFenceBlockPattern = /(?:^|\n)```[\w-]*\s*\n(?:[ \t]*\n)*```[ \t]*/g;
+  return text.replace(emptyFenceBlockPattern, (match, offset) => (offset === 0 ? "" : "\n"));
+}
+
 function extractCopilotItemText(item) {
   if (!item || typeof item !== "object") return "";
-  if (typeof item.value === "string") return item.value.trim();
+  if (item.kind === "inlineReference") {
+    return extractCopilotInlineReferenceText(item.inlineReference);
+  }
+  if (typeof item.value === "string") return item.value;
   if (item.value && typeof item.value === "object" && typeof item.value.value === "string") {
-    return item.value.value.trim();
+    return item.value.value;
   }
   return "";
 }
@@ -327,6 +372,107 @@ function extractCopilotToolMessage(messageObj) {
   if (typeof messageObj === "string") return messageObj;
   if (typeof messageObj.value === "string") return messageObj.value;
   return "";
+}
+
+function toPathFromFileUri(uri) {
+  if (!uri || typeof uri !== "string") return "";
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    try {
+      return decodeURIComponent(uri.replace(/^file:\/\//i, ""));
+    } catch {
+      return uri;
+    }
+  }
+}
+
+function extractFilePathFromMessageText(text) {
+  if (!text) return "";
+
+  const uriMatch = text.match(/\((file:\/\/[^)\s]+)\)/i);
+  if (uriMatch) return toPathFromFileUri(uriMatch[1]);
+
+  const backtickMatch = text.match(/`([^`]+)`/);
+  if (backtickMatch?.[1]) return backtickMatch[1].trim();
+
+  const verbMatch = text.match(/^(?:Reading|Read|Creating|Created|Writing|Wrote|Editing|Edited|Applying(?: patch)? to|Opening|Opened)\s+(.+)$/i);
+  if (verbMatch?.[1]) return verbMatch[1].trim();
+
+  return "";
+}
+
+function extractCommandFromMessageText(text) {
+  if (!text) return "";
+
+  const backtickMatch = text.match(/`([^`]+)`/);
+  if (backtickMatch?.[1]) return backtickMatch[1].trim();
+
+  const cmdMatch = text.match(/^(?:Running|Run|Executing|Executed|Ran)\s+(?:command\s*)?(.+)$/i);
+  if (cmdMatch?.[1]) return cmdMatch[1].trim();
+
+  return "";
+}
+
+function extractCopilotInvocationDetails(toolName, invocationObj, pastObj) {
+  const invocationText = extractCopilotToolMessage(invocationObj);
+  const pastText = extractCopilotToolMessage(pastObj);
+
+  const uriKeys = invocationObj && typeof invocationObj === "object" && invocationObj.uris && typeof invocationObj.uris === "object"
+    ? Object.keys(invocationObj.uris)
+    : [];
+  const firstUri = uriKeys.find((u) => typeof u === "string" && u.startsWith("file://")) || "";
+
+  let filePath = firstUri ? toPathFromFileUri(firstUri) : "";
+  if (!filePath) filePath = extractFilePathFromMessageText(invocationText) || extractFilePathFromMessageText(pastText);
+
+  const command = toolName === "Bash"
+    ? (extractCommandFromMessageText(invocationText) || extractCommandFromMessageText(pastText))
+    : "";
+
+  return { invocationText, pastText, filePath, command, uri: firstUri };
+}
+
+function extractCopilotToolSpecificInput(toolSpecificData) {
+  if (!toolSpecificData || typeof toolSpecificData !== "object") return {};
+
+  const kind = String(toolSpecificData.kind || "").toLowerCase();
+
+  if (kind === "terminal") {
+    const command =
+      toolSpecificData.commandLine?.original
+      || toolSpecificData.commandLine?.toolEdited
+      || toolSpecificData.confirmation?.commandLine
+      || toolSpecificData.presentationOverrides?.commandLine
+      || "";
+
+    const cwd =
+      toolSpecificData.cwd?.fsPath
+      || toolSpecificData.cwd?.path
+      || "";
+
+    return {
+      command,
+      cwd,
+      language: toolSpecificData.language || "",
+      is_background: !!toolSpecificData.isBackground,
+    };
+  }
+
+  if (kind === "todolist") {
+    const list = Array.isArray(toolSpecificData.todoList) ? toolSpecificData.todoList : [];
+    const todoSummary = list
+      .slice(0, 8)
+      .map((t) => `${t.status || "?"}: ${t.title || t.id || ""}`)
+      .join(" | ");
+
+    return {
+      todo_list: list,
+      todo_summary: todoSummary,
+    };
+  }
+
+  return {};
 }
 
 function mapCopilotToolName(toolId = "", invocationText = "") {
@@ -369,12 +515,21 @@ function parseGitHubChatPatchLogEvents(events) {
     const timestamp = normalizeTimestamp(req?.timestamp);
     const blocks = [];
     const responseItems = Array.isArray(req?.response) ? req.response : [];
+    let pendingText = "";
+
+    const flushPendingText = () => {
+      const text = stripMeaninglessFenceArtifacts(cleanSystemTags(pendingText)).trim();
+      pendingText = "";
+      if (!text || isMeaninglessFenceText(text)) return;
+      blocks.push({ kind: "text", text, tool_call: null, timestamp: timestamp || null });
+    };
 
     for (const item of responseItems) {
       const kind = item?.kind ?? "";
 
       if (kind === "thinking") {
-        const thinking = extractCopilotItemText(item);
+        flushPendingText();
+        const thinking = extractCopilotItemText(item).trim();
         if (thinking) {
           blocks.push({ kind: "thinking", text: thinking, tool_call: null, timestamp: timestamp || null });
         }
@@ -382,18 +537,30 @@ function parseGitHubChatPatchLogEvents(events) {
       }
 
       if (kind === "toolInvocationSerialized") {
-        const invocation = extractCopilotToolMessage(item?.invocationMessage);
-        const past = extractCopilotToolMessage(item?.pastTenseMessage);
-        const toolName = mapCopilotToolName(item?.toolId, invocation);
+        flushPendingText();
+        const initialInvocation = extractCopilotToolMessage(item?.invocationMessage);
+        const toolName = mapCopilotToolName(item?.toolId, initialInvocation);
+        const details = extractCopilotInvocationDetails(toolName, item?.invocationMessage, item?.pastTenseMessage);
+        const specificInput = extractCopilotToolSpecificInput(item?.toolSpecificData);
+        const input = {
+          tool_id: item?.toolId ?? "",
+          invocation: details.invocationText,
+        };
+        if (details.filePath) input.file_path = details.filePath;
+        if (details.command) input.command = details.command;
+        if (details.uri) input.uri = details.uri;
+        for (const [k, v] of Object.entries(specificInput)) {
+          if (v === "" || v == null) continue;
+          if (Array.isArray(v) && v.length === 0) continue;
+          input[k] = v;
+        }
+
         const toolCall = {
           tool_use_id: String(item?.toolCallId ?? ""),
           name: toolName,
-          input: {
-            tool_id: item?.toolId ?? "",
-            invocation: invocation,
-          },
-          result: past || null,
-          resultTimestamp: past ? (timestamp || null) : null,
+          input,
+          result: details.pastText || null,
+          resultTimestamp: details.pastText ? (timestamp || null) : null,
           is_error: false,
         };
         blocks.push({ kind: "tool_use", text: "", tool_call: toolCall, timestamp: timestamp || null });
@@ -402,9 +569,11 @@ function parseGitHubChatPatchLogEvents(events) {
 
       const text = extractCopilotItemText(item);
       if (text) {
-        blocks.push({ kind: "text", text, tool_call: null, timestamp: timestamp || null });
+        pendingText += text;
       }
     }
+
+    flushPendingText();
 
     turns.push({
       index: turns.length + 1,
