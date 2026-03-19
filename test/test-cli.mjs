@@ -71,6 +71,22 @@ describe("CLI flags", () => {
     assert.match(stdout, /<!DOCTYPE html>/);
   });
 
+  it("accepts autoplay, theme-mode, expand-tools, and ungroup-tools flags", async () => {
+    const { code, stdout } = await run([
+      FIXTURE,
+      "--no-minify",
+      "--autoplay",
+      "--theme-mode", "light",
+      "--expand-tools",
+      "--ungroup-tools",
+    ]);
+    assert.equal(code, 0);
+    assert.match(stdout, /const DEFAULT_THEME_MODE = "light";/);
+    assert.match(stdout, /const AUTOPLAY = true;/);
+    assert.match(stdout, /const EXPAND_TOOLS_BY_DEFAULT = true;/);
+    assert.match(stdout, /const UNGROUP_TOOLS_BY_DEFAULT = true;/);
+  });
+
   it("remaps bookmark indices when excluding turns", async () => {
     // Exclude turn 2, bookmark on original turn 3 → should become turn 2
     const { code, stdout } = await run([

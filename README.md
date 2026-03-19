@@ -127,7 +127,7 @@ claude-replay --port 8080
 The editor provides:
 - **Session browser** — auto-discovers sessions from `~/.claude/projects/`, `~/.cursor/projects/`, `~/.codex/sessions/`, `~/.vs-github-chat/sessions/`, and VS Code `workspaceStorage/*/chatSessions/`, plus a folder navigator for JSONL files stored elsewhere
 - **Turn editor** — include/exclude turns, edit user prompts, expand assistant blocks (read-only), add bookmarks
-- **Options panel** — theme, speed, thinking/tool call toggles, redaction rules, labels
+- **Options panel** — theme, theme mode, speed, autoplay, tool/thinking defaults, tool grouping, redaction rules, labels
 - **Live preview** — updates as you edit, renders the same output as the CLI
 - **Export** — download the final HTML replay
 
@@ -171,8 +171,11 @@ Note: the extracted data is the *parsed* representation (system tags stripped, s
 | `--from TIMESTAMP` | Start time filter (ISO 8601) |
 | `--to TIMESTAMP` | End time filter (ISO 8601) |
 | `--speed N` | Initial playback speed, e.g. `2.0` (default: 1.0) |
+| `--autoplay` | Start playback automatically when the replay loads |
 | `--no-thinking` | Hide thinking blocks by default |
 | `--no-tool-calls` | Hide tool call blocks by default |
+| `--expand-tools` | Expand tool call details by default |
+| `--ungroup-tools` | Render each tool call as its own playback step instead of grouping consecutive tools |
 | `--mark "N:Label"` | Add a bookmark/chapter at turn N (repeatable) |
 | `--bookmarks FILE` | JSON file with bookmarks `[{turn, label}]` |
 | `--no-auto-redact` | Disable automatic secret redaction |
@@ -185,6 +188,7 @@ Note: the extracted data is the *parsed* representation (system tags stripped, s
 | `--assistant-label NAME` | Label for assistant messages (default: auto-detected) |
 | `--timing MODE` | Timestamp mode: `auto`, `real`, `paced` (default: `auto`) |
 | `--theme NAME` | Built-in theme (default: `tokyo-night`) |
+| `--theme-mode MODE` | Initial player theme mode: `auto`, `dark`, `light`, `copilot` (default: `auto`) |
 | `--theme-file FILE` | Custom theme JSON file (overrides `--theme`) |
 | `--no-minify` | Use unminified template (default: minified if available) |
 | `--no-compress` | Embed raw JSON instead of compressed data (for older browsers) |
@@ -206,6 +210,9 @@ claude-replay session.jsonl --no-thinking --no-tool-calls -o replay.html
 
 # Use a different theme
 claude-replay session.jsonl --theme dracula -o replay.html
+
+# Start automatically in light mode with expanded, ungrouped tool details
+claude-replay session.jsonl --autoplay --theme-mode light --expand-tools --ungroup-tools -o replay.html
 
 # Pipe to stdout for further processing
 claude-replay session.jsonl --turns 1-5 > snippet.html
@@ -261,7 +268,7 @@ The generated HTML file is a fully self-contained interactive player:
 claude-replay --list-themes
 ```
 
-Available themes: `tokyo-night` (default), `monokai`, `solarized-dark`, `github-light`, `dracula`, `bubbles`, `vscode`.
+Available themes: `tokyo-night` (default), `monokai`, `solarized-dark`, `github-light`, `dracula`, `bubbles`, `vscode`, `copilot`.
 
 ### Custom themes
 

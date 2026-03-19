@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { getFileUrl, getUncompressedFileUrl, getChapterFileUrl, waitForReady } from "./setup.mjs";
+import { getFileUrl, getUncompressedFileUrl, getChapterFileUrl, getAutoplayFileUrl, getExpandedToolsFileUrl, getUngroupedToolsFileUrl, waitForReady } from "./setup.mjs";
 
 // Helpers
 const blockCount = (page, turn, hidden = false) =>
@@ -49,6 +49,13 @@ test("clicking play hides splash and starts revealing blocks", async ({ page }) 
   await page.locator("#splash-play").click();
   expect(await isSplashVisible(page)).toBe(false);
   // Wait for at least one block to be revealed in turn 1
+  await expect(page.locator('.turn[data-index="1"] .block-wrapper:not(.block-hidden)').first()).toBeVisible({ timeout: 5000 });
+});
+
+test("autoplay starts immediately when enabled", async ({ page }) => {
+  await page.goto(getAutoplayFileUrl());
+  await waitForReady(page);
+  expect(await isSplashVisible(page)).toBe(false);
   await expect(page.locator('.turn[data-index="1"] .block-wrapper:not(.block-hidden)').first()).toBeVisible({ timeout: 5000 });
 });
 
@@ -310,6 +317,33 @@ test("speed popover changes speed", async ({ page }) => {
   await expect(page.locator("#speed-popover")).toBeVisible();
   await page.locator('#speed-popover button[data-speed="2"]').click();
   expect(await getSpeed()).toBe("2x");
+});
+
+test("expanded-tools mode opens tool details by default", async ({ page }) => {
+  await page.goto(getExpandedToolsFileUrl("turn=2"));
+  await waitForReady(page);
+  const tool = page.locator('.turn[data-index="1"] .tool-block').first();
+  await expect(tool).toHaveClass(/open/);
+  await expect(tool.locator(".tool-body")).toBeVisible();
+});
+
+test("ungroup-tools mode reveals consecutive tool calls separately", async ({ page }) => {
+  await page.goto(getUngroupedToolsFileUrl("turn=2"));
+  await waitForReady(page);
+
+  expect(await blockCount(page, 2)).toBe(4);
+  expect(await visibleBlockCount(page, 2)).toBe(0);
+
+  const visibleTools = () => page.locator('.turn[data-index="2"] .block-wrapper:not(.block-hidden) .tool-block').count();
+
+  await pressKey(page, "ArrowRight"); // thinking
+  expect(await visibleTools()).toBe(0);
+
+  await pressKey(page, "ArrowRight"); // first tool
+  expect(await visibleTools()).toBe(1);
+
+  await pressKey(page, "ArrowRight"); // second tool
+  expect(await visibleTools()).toBe(2);
 });
 
 // ─── Chapters ───────────────────────────────────────────────

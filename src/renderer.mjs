@@ -114,7 +114,7 @@ function turnsToJsonData(turns, { redact = true, redactRules } = {}) {
 /**
  * Render turns into a self-contained HTML string.
  * @param {import('./parser.mjs').Turn[]} turns
- * @param {{ speed?: number, showThinking?: boolean, showToolCalls?: boolean, theme?: Record<string,string>, userLabel?: string, assistantLabel?: string, title?: string, redactSecrets?: boolean }} opts
+ * @param {{ speed?: number, showThinking?: boolean, showToolCalls?: boolean, theme?: Record<string,string>, themeMode?: string, autoplay?: boolean, expandTools?: boolean, ungroupTools?: boolean, userLabel?: string, assistantLabel?: string, title?: string, redactSecrets?: boolean }} opts
  * @returns {string}
  */
 export function render(turns, opts = {}) {
@@ -123,6 +123,10 @@ export function render(turns, opts = {}) {
     showThinking = true,
     showToolCalls = true,
     theme = getTheme("tokyo-night"),
+    themeMode: rawThemeMode = "auto",
+    autoplay = false,
+    expandTools = false,
+    ungroupTools = false,
     userLabel = "User",
     assistantLabel = "Claude",
     title = "Claude Code Replay",
@@ -134,6 +138,9 @@ export function render(turns, opts = {}) {
 
   // Validate inputs
   const speed = Number.isFinite(rawSpeed) ? Math.max(0.1, Math.min(rawSpeed, 10)) : 1.0;
+  const themeMode = ["auto", "dark", "light", "copilot"].includes(rawThemeMode)
+    ? rawThemeMode
+    : "auto";
 
   let html;
   if (opts.minified === false) {
@@ -153,6 +160,10 @@ export function render(turns, opts = {}) {
   html = html.replace("/*THEME_BG*/", escapeHtml(theme.bg || "#1a1b26"));
   html = html.replace("/*INITIAL_SPEED*/1", String(speed));  // JS default
   html = html.replace(/\/\*INITIAL_SPEED\*\//g, String(speed));  // HTML attrs
+  html = html.replace("/*DEFAULT_THEME_MODE*/", themeMode);
+  html = html.replace("/*DEFAULT_AUTOPLAY*/false", String(autoplay === true));
+  html = html.replace("/*DEFAULT_EXPAND_TOOLS*/false", String(expandTools === true));
+  html = html.replace("/*DEFAULT_UNGROUP_TOOLS*/false", String(ungroupTools === true));
   html = html.replaceAll("/*CHECKED_THINKING*/", showThinking ? "checked" : "");
   html = html.replaceAll("/*CHECKED_TOOLS*/", showToolCalls ? "checked" : "");
   html = html.replaceAll("/*PAGE_TITLE*/", escapeHtml(title));

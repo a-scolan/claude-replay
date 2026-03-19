@@ -182,6 +182,36 @@ describe("editor-server API", () => {
     assert.match(data.html, /<!DOCTYPE html>/);
   });
 
+  it("POST /api/preview passes theme mode, autoplay, expand-tools, and ungroup-tools options", async () => {
+    const loadRes = await fetch(`${baseUrl}/api/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: FIXTURE_PATH }),
+    });
+    const loadData = await loadRes.json();
+    const sid = loadData.sessionId;
+
+    const res = await fetch(`${baseUrl}/api/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: sid,
+        options: {
+          themeMode: "copilot",
+          autoplay: true,
+          expandTools: true,
+          ungroupTools: true,
+        },
+      }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.match(data.html, /const DEFAULT_THEME_MODE = "copilot";/);
+    assert.match(data.html, /const AUTOPLAY = true;/);
+    assert.match(data.html, /const EXPAND_TOOLS_BY_DEFAULT = true;/);
+    assert.match(data.html, /const UNGROUP_TOOLS_BY_DEFAULT = true;/);
+  });
+
   it("POST /api/export returns HTML with Content-Disposition header", async () => {
     const loadRes = await fetch(`${baseUrl}/api/load`, {
       method: "POST",

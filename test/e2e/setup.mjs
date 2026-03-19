@@ -47,6 +47,18 @@ export function getChapterFileUrl(hash = "") {
   }) + (hash ? "#" + hash : "");
 }
 
+export function getAutoplayFileUrl(hash = "") {
+  return "file://" + buildHtml("autoplay", { autoplay: true }) + (hash ? "#" + hash : "");
+}
+
+export function getExpandedToolsFileUrl(hash = "") {
+  return "file://" + buildHtml("expanded-tools", { expandTools: true }) + (hash ? "#" + hash : "");
+}
+
+export function getUngroupedToolsFileUrl(hash = "") {
+  return "file://" + buildHtml("ungrouped-tools", { ungroupTools: true }) + (hash ? "#" + hash : "");
+}
+
 /** Wait for the player to finish initialization. */
 export async function waitForReady(page) {
   await page.waitForSelector('body[data-ready="1"]', { timeout: 5000 });

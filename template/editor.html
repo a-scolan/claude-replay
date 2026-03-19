@@ -867,6 +867,10 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
           <input type="number" id="optSpeed" value="1" min="0.1" max="10" step="0.1" title="Initial playback speed (0.1 - 10x)">
         </div>
         <div class="opt-row">
+          <label title="Start playback automatically when the replay loads">Autoplay</label>
+          <input type="checkbox" id="optAutoplay" title="Start playback automatically when the replay loads">
+        </div>
+        <div class="opt-row">
           <label title="Show thinking blocks by default">Show Thinking</label>
           <input type="checkbox" id="optThinking" checked title="Show thinking blocks by default">
         </div>
@@ -874,11 +878,28 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
           <label title="Show tool call blocks by default">Show Tool Calls</label>
           <input type="checkbox" id="optToolCalls" checked title="Show tool call blocks by default">
         </div>
+        <div class="opt-row">
+          <label title="Expand tool call blocks by default">Expand Tools</label>
+          <input type="checkbox" id="optExpandTools" title="Expand tool call blocks by default">
+        </div>
+        <div class="opt-row">
+          <label title="Render each tool call as its own playback step instead of grouping consecutive tool calls">Ungroup Tools</label>
+          <input type="checkbox" id="optUngroupTools" title="Render each tool call as its own playback step instead of grouping consecutive tool calls">
+        </div>
 
         <div class="opt-group-label">Appearance</div>
         <div class="opt-row">
           <label for="optTheme" title="Color theme for the replay player">Theme</label>
           <select id="optTheme" title="Color theme for the replay player"></select>
+        </div>
+        <div class="opt-row">
+          <label for="optThemeMode" title="Default runtime theme mode for the player controls">Theme mode</label>
+          <select id="optThemeMode" title="Default runtime theme mode for the player controls">
+            <option value="auto" selected>Auto</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="copilot">Copilot</option>
+          </select>
         </div>
         <div class="opt-row">
           <label for="optTiming" title="Timestamp mode: auto, real, or paced">Timing</label>
@@ -984,8 +1005,12 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
       <h3>Options</h3>
       <ul>
         <li><b>Theme</b> — color scheme for the exported replay</li>
+        <li><b>Theme mode</b> — default player mode (`dark`, `light`, or `copilot`)</li>
         <li><b>Speed</b> — initial playback speed</li>
+        <li><b>Autoplay</b> — start the replay immediately on load</li>
         <li><b>Show Thinking / Tool Calls</b> — toggle block visibility</li>
+        <li><b>Expand Tools</b> — show tool details open by default</li>
+        <li><b>Ungroup Tools</b> — render consecutive tool calls as separate playback steps</li>
         <li><b>Auto-redact</b> — automatically hide API keys and secrets</li>
         <li><b>Custom redact</b> — replace specific text (usernames, paths, etc.)</li>
         <li><b>Timing</b> — auto, real (original timestamps), or paced (synthetic)</li>
@@ -1145,9 +1170,13 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
   // Option controls
   const opt = {
     theme:     $("optTheme"),
+    themeMode: $("optThemeMode"),
     speed:     $("optSpeed"),
+    autoplay:  $("optAutoplay"),
     thinking:  $("optThinking"),
     toolCalls: $("optToolCalls"),
+    expandTools: $("optExpandTools"),
+    ungroupTools: $("optUngroupTools"),
     redact:    $("optRedact"),
     userLabel: $("optUserLabel"),
     asstLabel: $("optAssistantLabel"),
@@ -1589,9 +1618,13 @@ body.sidebar-collapsed .sidebar-edge-toggle { left: 16px; }
   function gatherOptions() {
     return {
       theme: opt.theme.value,
+      themeMode: opt.themeMode.value,
       speed: parseFloat(opt.speed.value) || 1,
+      autoplay: opt.autoplay.checked,
       showThinking: opt.thinking.checked,
       showToolCalls: opt.toolCalls.checked,
+      expandTools: opt.expandTools.checked,
+      ungroupTools: opt.ungroupTools.checked,
       redactSecrets: opt.redact.checked,
       redactRules: getRedactRules(),
       userLabel: opt.userLabel.value || "User",

@@ -1358,6 +1358,10 @@ body.theme-mode-copilot .thinking-body pre {
 
   const TURNS = await decodeData("/*TURNS_DATA*/");
   const BOOKMARKS = await decodeData("/*BOOKMARKS_DATA*/");
+  const DEFAULT_THEME_MODE = "/*DEFAULT_THEME_MODE*/";
+  const AUTOPLAY = /*DEFAULT_AUTOPLAY*/false;
+  const EXPAND_TOOLS_BY_DEFAULT = /*DEFAULT_EXPAND_TOOLS*/false;
+  const UNGROUP_TOOLS_BY_DEFAULT = /*DEFAULT_UNGROUP_TOOLS*/false;
 
   const SPEED_STEPS = [0.5, 1, 2, 3, 5];
   const ANIMATE_MIN_DELAY = 600;       // minimum ms between consecutive block reveals
@@ -1511,6 +1515,10 @@ body.theme-mode-copilot .thinking-body pre {
   }
 
   function detectInitialThemeMode() {
+    const defaultThemeMode = getComputedStyle(document.documentElement)
+      .getPropertyValue("--default-theme-mode").trim();
+    if (THEME_MODES.includes(defaultThemeMode)) return defaultThemeMode;
+
     // If the theme declares --default-ui: vscode, it's a copilot/vscode theme
     const defaultUi = getComputedStyle(document.documentElement)
       .getPropertyValue("--default-ui").trim();
@@ -1938,6 +1946,46 @@ body.theme-mode-copilot .thinking-body pre {
     return bodyHtml;
   }
 
+  function renderThinkingBlock(text) {
+    const thinkLabel = uiMode === "vscode" ? escapeHtml(thinkingTitle(text)) : "Thinking";
+    return `<div class="thinking-block" data-type="thinking">
+      <div class="thinking-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="thinking-chevron">&#9654;</span> ${thinkLabel} <span class="block-spinner"></span>
+      </div>
+      <div class="thinking-body">${renderMarkdown(text)}</div>
+    </div>`;
+  }
+
+  function renderToolBlock(tc) {
+    const tbodyHtml = formatToolBody(tc);
+    if (uiMode === "vscode") {
+      const vs = vsCodeToolSummary(tc);
+      const detailHtml = vs.detail
+        ? (vs.isCode ? ` <code>${escapeHtml(vs.detail)}</code>` : ` <span class="tool-detail">${escapeHtml(vs.detail)}</span>`)
+        : "";
+      return `<div class="tool-block tool-inline" data-type="tool">
+        <div class="tool-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="tool-indicator${tc.is_error ? " tool-error" : ""}"></span>
+          <span class="tool-verb">${escapeHtml(vs.verb)}</span>${detailHtml}
+          <span class="block-spinner"></span>
+          <span class="tool-chevron">&#9654;</span>
+        </div>
+        <div class="tool-body">${tbodyHtml}</div>
+      </div>`;
+    }
+    const preview = toolPreview(tc);
+    return `<div class="tool-block" data-type="tool">
+      <div class="tool-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="tool-indicator${tc.is_error ? " tool-error" : ""}"></span>
+        <span class="tool-name">${escapeHtml(tc.name)}</span>
+        <span class="tool-args-preview">${escapeHtml(preview)}</span>
+        <span class="block-spinner"></span>
+        <span class="tool-chevron">&#9654;</span>
+      </div>
+      <div class="tool-body">${tbodyHtml}</div>
+    </div>`;
+  }
+
   function countLines(text) {
     if (!text) return 0;
     return text.split("\n").length;
@@ -1971,6 +2019,16 @@ body.theme-mode-copilot .thinking-body pre {
     for (const o of el.querySelectorAll(".open")) o.classList.remove("open");
   }
 
+  function applyDefaultDisclosure(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    for (const el of root.querySelectorAll(".thinking-block")) {
+      el.classList.remove("open");
+    }
+    for (const el of root.querySelectorAll(".tool-block, .tool-group")) {
+      el.classList.toggle("open", EXPAND_TOOLS_BY_DEFAULT);
+    }
+  }
+
   // Splash screen helpers
   function showSplash() { splash.classList.remove("hidden"); }
   function hideSplash() { splash.classList.add("hidden"); }
@@ -1995,6 +2053,7 @@ body.theme-mode-copilot .thinking-body pre {
     for (const w of turnEl.querySelectorAll(".block-wrapper.block-hidden")) {
       w.classList.remove("block-hidden");
     }
+    applyDefaultDisclosure(turnEl);
   }
 
   function hideAllBlocks(turnEl) {
@@ -2087,82 +2146,46 @@ body.theme-mode-copilot .thinking-body pre {
       html += `<div class="role-section role-assistant">`;
       html += `<div class="role-label role-assistant-label">/*ASSISTANT_LABEL*/</div>`;
 
-      // Group consecutive tool_use blocks into runs
+      // Group consecutive tool_use blocks into runs unless ungrouping is forced.
       // In vscode mode, thinking blocks don't break tool runs (they render as
-      // small collapsed headers inside the group, matching VS Code Copilot Chat)
+      // small collapsed headers inside the group, matching VS Code Copilot Chat).
+      const shouldGroupTools = !UNGROUP_TOOLS_BY_DEFAULT;
       const segments = [];
       let toolRun = [];
       let blockIdx = 0;
       for (const block of turn.blocks) {
-        if (block.kind === "tool_use" && block.tool_call) {
+        if (shouldGroupTools && block.kind === "tool_use" && block.tool_call) {
           toolRun.push(block);
-        } else if (uiMode === "vscode" && block.kind === "thinking" && toolRun.length > 0) {
+        } else if (shouldGroupTools && uiMode === "vscode" && block.kind === "thinking" && toolRun.length > 0) {
           toolRun.push(block);
         } else {
           if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun, blockIdx: blockIdx++ }); toolRun = []; }
-          segments.push({ type: "single", block, blockIdx: blockIdx++ });
+          segments.push({ type: block.kind === "tool_use" && block.tool_call ? "tool" : "single", block, blockIdx: blockIdx++ });
         }
       }
       if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun, blockIdx: blockIdx++ }); }
 
       for (const seg of segments) {
         const hiddenCls = " block-hidden";
-        if (seg.type === "single") {
+        if (seg.type === "single" || seg.type === "tool") {
           const block = seg.block;
           if (block.kind === "text") {
             const lines = countLines(block.text);
             const textContent = `<div class="assistant-text">${renderMarkdown(block.text)}</div>`;
             html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}">${wrapCollapsible(textContent, lines, 15)}</div>`;
           } else if (block.kind === "thinking") {
-            const thinkLabel = uiMode === "vscode" ? escapeHtml(thinkingTitle(block.text)) : "Thinking";
-            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}"><div class="thinking-block" data-type="thinking">
-              <div class="thinking-header" onclick="this.parentElement.classList.toggle('open')">
-                <span class="thinking-chevron">&#9654;</span> ${thinkLabel} <span class="block-spinner"></span>
-              </div>
-              <div class="thinking-body">${renderMarkdown(block.text)}</div>
-            </div></div>`;
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}">${renderThinkingBlock(block.text)}</div>`;
+          } else if (block.kind === "tool_use" && block.tool_call) {
+            html += `<div class="block-wrapper${hiddenCls}" data-block-idx="${seg.blockIdx}">${renderToolBlock(block.tool_call)}</div>`;
           }
         } else {
           // Tool run (may include interleaved thinking blocks in vscode mode)
           const toolBlocks = seg.blocks.filter(b => b.kind === "tool_use");
           const segBodyHtml = seg.blocks.map(block => {
             if (block.kind === "thinking") {
-              const thinkLabel = uiMode === "vscode" ? escapeHtml(thinkingTitle(block.text)) : "Thinking";
-              return `<div class="thinking-block" data-type="thinking">
-              <div class="thinking-header" onclick="this.parentElement.classList.toggle('open')">
-                <span class="thinking-chevron">&#9654;</span> ${thinkLabel} <span class="block-spinner"></span>
-              </div>
-              <div class="thinking-body">${renderMarkdown(block.text)}</div>
-            </div>`;
+              return renderThinkingBlock(block.text);
             }
-            const tc = block.tool_call;
-            const tbodyHtml = formatToolBody(tc);
-            if (uiMode === "vscode") {
-              const vs = vsCodeToolSummary(tc);
-              const detailHtml = vs.detail
-                ? (vs.isCode ? ` <code>${escapeHtml(vs.detail)}</code>` : ` <span class="tool-detail">${escapeHtml(vs.detail)}</span>`)
-                : "";
-              return `<div class="tool-block tool-inline" data-type="tool">
-              <div class="tool-header" onclick="this.parentElement.classList.toggle('open')">
-                <span class="tool-indicator${tc.is_error ? " tool-error" : ""}"></span>
-                <span class="tool-verb">${escapeHtml(vs.verb)}</span>${detailHtml}
-                <span class="block-spinner"></span>
-                <span class="tool-chevron">&#9654;</span>
-              </div>
-              <div class="tool-body">${tbodyHtml}</div>
-            </div>`;
-            }
-            const preview = toolPreview(tc);
-            return `<div class="tool-block" data-type="tool">
-              <div class="tool-header" onclick="this.parentElement.classList.toggle('open')">
-                <span class="tool-indicator${tc.is_error ? " tool-error" : ""}"></span>
-                <span class="tool-name">${escapeHtml(tc.name)}</span>
-                <span class="tool-args-preview">${escapeHtml(preview)}</span>
-                <span class="block-spinner"></span>
-                <span class="tool-chevron">&#9654;</span>
-              </div>
-              <div class="tool-body">${tbodyHtml}</div>
-            </div>`;
+            return renderToolBlock(block.tool_call);
           }).join("");
 
           const toolCount = toolBlocks.length;
@@ -2359,13 +2382,16 @@ body.theme-mode-copilot .thinking-body pre {
     const wrappers = el.querySelectorAll(".block-wrapper");
     if (wrappers.length === 0) { onComplete(); return function(){}; }
 
-    // Rebuild segment structure to get timestamps
+    // Rebuild segment structure to get timestamps.
+    // Must mirror the rendering grouping logic: when UNGROUP_TOOLS_BY_DEFAULT is true,
+    // each block gets its own wrapper, so each block must also be its own segment here.
+    const shouldGroup = !UNGROUP_TOOLS_BY_DEFAULT;
     const segments = [];
     let toolRun = [];
     for (const block of turn.blocks) {
-      if (block.kind === "tool_use" && block.tool_call) {
+      if (shouldGroup && block.kind === "tool_use" && block.tool_call) {
         toolRun.push(block);
-      } else if (uiMode === "vscode" && block.kind === "thinking" && toolRun.length > 0) {
+      } else if (shouldGroup && uiMode === "vscode" && block.kind === "thinking" && toolRun.length > 0) {
         toolRun.push(block);
       } else {
         if (toolRun.length > 0) { segments.push({ type: "tools", blocks: toolRun }); toolRun = []; }
@@ -2406,6 +2432,7 @@ body.theme-mode-copilot .thinking-body pre {
       w.classList.remove("block-hidden");
       w.classList.add("block-revealing");
       w.classList.add("block-active");
+      applyDefaultDisclosure(w);
       requestAnimationFrame(() => {
         const barH = getControlsHeight();
         const viewBottom = window.innerHeight - barH;
@@ -2666,6 +2693,7 @@ body.theme-mode-copilot .thinking-body pre {
       if (prev) prev.classList.remove("block-active");
       w.classList.remove("block-hidden");
       w.classList.add("block-revealing", "block-active");
+      applyDefaultDisclosure(w);
       syncTimerToBlock();
       scrollIntoView(w);
     } else if (currentTurn < TURNS.length) {
@@ -3194,21 +3222,23 @@ body.theme-mode-copilot .thinking-body pre {
 
   applyUiMode(savedUi === "vscode" ? "vscode" : "terminal", { persist: false });
 
-  try {
-    const savedTheme = localStorage.getItem("cr-theme-mode");
-    const initialTheme = savedTheme && THEME_MODES.includes(savedTheme)
-      ? savedTheme
-      : detectInitialThemeMode();
-    applyThemeMode(initialTheme, { persist: false });
-  } catch {
-    applyThemeMode("dark", { persist: false });
+  function resolveInitialThemeMode() {
+    if (THEME_MODES.includes(DEFAULT_THEME_MODE)) return DEFAULT_THEME_MODE;
+    try {
+      const savedTheme = localStorage.getItem("cr-theme-mode");
+      if (savedTheme && THEME_MODES.includes(savedTheme)) return savedTheme;
+    } catch {}
+    return detectInitialThemeMode();
   }
+
+  applyThemeMode(resolveInitialThemeMode(), { persist: false });
 
   renderAllTurns();
   applyVisibility();
   const hashMatch = location.hash.match(/turn=(\d+)/);
+  const requestedTurn = hashMatch ? Math.min(parseInt(hashMatch[1], 10), TURNS.length) : null;
   if (hashMatch) {
-    const startTurn = Math.min(parseInt(hashMatch[1], 10), TURNS.length);
+    const startTurn = requestedTurn;
     if (startTurn > 0) {
       // Deep link: skip splash, jump directly — hide active blocks so turn header is visible
       hideSplash();
@@ -3218,6 +3248,10 @@ body.theme-mode-copilot .thinking-body pre {
   }
   // else: splash is visible, currentTurn = 0, progress at 0%
   updateProgress();
+
+  if (AUTOPLAY && TURNS.length > 0 && requestedTurn !== 0) {
+    startPlay();
+  }
 
   // React to hash changes (e.g. from parent editor iframe control)
   window.addEventListener("hashchange", () => {

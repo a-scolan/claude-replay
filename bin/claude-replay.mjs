@@ -21,9 +21,13 @@ const options = {
   from: { type: "string" },
   to: { type: "string" },
   speed: { type: "string", default: "1" },
+  autoplay: { type: "boolean", default: false },
   "no-thinking": { type: "boolean", default: false },
   "no-tool-calls": { type: "boolean", default: false },
+  "expand-tools": { type: "boolean", default: false },
+  "ungroup-tools": { type: "boolean", default: false },
   theme: { type: "string", default: "tokyo-night" },
+  "theme-mode": { type: "string", default: "auto" },
   "theme-file": { type: "string" },
   "list-themes": { type: "boolean", default: false },
   "no-auto-redact": { type: "boolean", default: false },
@@ -103,8 +107,11 @@ Options:
   --from TIMESTAMP        Start time filter (ISO 8601)
   --to TIMESTAMP          End time filter (ISO 8601)
   --speed N               Initial playback speed (default: 1.0)
+  --autoplay              Start playback automatically when the replay loads
   --no-thinking           Hide thinking blocks by default
   --no-tool-calls         Hide tool call blocks by default
+  --expand-tools          Expand tool call details by default
+  --ungroup-tools         Render each tool call as its own playback step
   --title TEXT             Page title (default: derived from input path)
   --description TEXT       Meta description for link previews (default: "Interactive AI session replay")
   --og-image URL          OG image URL for link previews (default: hosted default)
@@ -112,6 +119,7 @@ Options:
   --redact "text"         Replace text with [REDACTED] (repeatable)
   --redact "text=repl"    Replace text with custom replacement (repeatable)
   --theme NAME            Built-in theme (default: tokyo-night)
+  --theme-mode MODE       Initial player theme mode: auto, dark, light, copilot (default: auto)
   --theme-file FILE       Custom theme JSON file (overrides --theme)
   --user-label NAME       Label for user messages (default: User)
   --assistant-label NAME  Label for assistant messages (default: auto-detected)
@@ -297,6 +305,11 @@ if (timing === "paced" || (timing === "auto" && !hasTimestamps)) {
 }
 
 const speed = parseFloat(values.speed) || 1.0;
+const themeMode = values["theme-mode"] || "auto";
+if (!["auto", "dark", "light", "copilot"].includes(themeMode)) {
+  console.error(`Error: unknown --theme-mode value "${themeMode}". Use auto, dark, light, or copilot.`);
+  process.exit(1);
+}
 
 // Derive title: CLI override > parent folder name > filename
 let title = values.title;
@@ -376,9 +389,13 @@ if (values.redact) {
 
 const html = render(turns, {
   speed,
+  autoplay: values.autoplay,
   showThinking: !values["no-thinking"],
   showToolCalls: !values["no-tool-calls"],
+  expandTools: values["expand-tools"],
+  ungroupTools: values["ungroup-tools"],
   theme,
+  themeMode,
   redactSecrets: !values["no-auto-redact"],
   redactRules,
   userLabel: values["user-label"],

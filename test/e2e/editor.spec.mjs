@@ -46,8 +46,9 @@ async function loadFixture(page) {
   await page.locator("#browsePathInput").press("Enter");
 
   // Wait for file list and click the fixture
-  await page.waitForSelector(`.browse-item[data-path="${FIXTURE_PATH}"]`, { timeout: 5000 });
-  await page.locator(`.browse-item[data-path="${FIXTURE_PATH}"]`).click();
+  const fixtureItem = page.locator("#browseList .browse-item", { hasText: "fixture.jsonl" }).first();
+  await expect(fixtureItem).toBeVisible({ timeout: 5000 });
+  await fixtureItem.click();
 
   // Wait for turns to load
   await page.waitForSelector(".turn-card", { timeout: 5000 });
@@ -248,20 +249,21 @@ test("help modal closes with Escape", async ({ page }) => {
 
 // ─── Dark / light mode ────────────────────────────────────
 
-test("dark/light toggle switches mode", async ({ page }) => {
+test("theme toggle cycles through the available modes", async ({ page }) => {
   await gotoEditor(page);
 
-  // Should start in dark mode (no .light class on html)
-  const htmlEl = page.locator("html");
-  await expect(htmlEl).not.toHaveClass(/light/);
-
-  // Click toggle
+  const label = page.locator("#themeModeLabel");
+  const first = await label.textContent();
   await page.locator("#themeModeBtn").click();
-  await expect(htmlEl).toHaveClass(/light/);
-
-  // Click again to go back
+  const second = await label.textContent();
   await page.locator("#themeModeBtn").click();
-  await expect(htmlEl).not.toHaveClass(/light/);
+  const third = await label.textContent();
+  await page.locator("#themeModeBtn").click();
+  const fourth = await label.textContent();
+
+  expect(second).not.toBe(first);
+  expect(third).not.toBe(second);
+  expect(fourth).toBe(first);
 });
 
 // ─── Sidebar toggle ───────────────────────────────────────

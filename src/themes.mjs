@@ -10,7 +10,7 @@ const THEME_VARS = [
   "accent", "accent-dim",
   "green", "blue", "orange", "red", "cyan",
   "border", "tool-bg", "thinking-bg",
-  "default-ui",
+  "default-ui", "default-theme-mode",
 ];
 
 const BUILTIN_THEMES = {
@@ -135,6 +135,7 @@ const BUILTIN_THEMES = {
     "tool-bg": "#1a1a1a",
     "thinking-bg": "#1a1a1a",
     "default-ui": "vscode",
+    "default-theme-mode": "copilot",
     "extraCss": `
       body {
         font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;

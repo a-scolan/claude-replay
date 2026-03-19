@@ -55,6 +55,20 @@ describe("render", () => {
     assert.match(html, /2\.5x/);
   });
 
+  it("embeds player defaults for theme mode, autoplay, expand-tools, and ungroup-tools", () => {
+    const html = render(SAMPLE_TURNS, {
+      minified: false,
+      themeMode: "light",
+      autoplay: true,
+      expandTools: true,
+      ungroupTools: true,
+    });
+    assert.match(html, /const DEFAULT_THEME_MODE = "light";/);
+    assert.match(html, /const AUTOPLAY = true;/);
+    assert.match(html, /const EXPAND_TOOLS_BY_DEFAULT = true;/);
+    assert.match(html, /const UNGROUP_TOOLS_BY_DEFAULT = true;/);
+  });
+
   it("respects showThinking=false", () => {
     const html = render(SAMPLE_TURNS, { showThinking: false, minified: false });
     // The thinking checkbox should NOT have "checked"
